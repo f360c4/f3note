@@ -242,3 +242,8 @@ it with the output of `echo $XDG_STATE_HOME` and whether you have a session bus.
 
 **Syntax highlighting is off.** It is off by default — f3note should open
 looking like a notepad. Turn it on with `syntax_highlighting = true`.
+
+**Typing is eating the text in front of the cursor.** You are in overwrite
+mode — the `Insert` key toggles it, and it is easy to hit by accident. The
+status bar shows `OVR` while it is on; press `Insert` again, or click `OVR`,
+to go back.

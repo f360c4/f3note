@@ -78,6 +78,8 @@ pub struct Window {
     /// second grabbing popup over the first is both wrong for the user and
     /// refused by GDK.
     popover: RefCell<Option<gtk::Popover>>,
+    /// Whether the overwrite-mode notice has already been shown this session.
+    warned_about_overwrite: Cell<bool>,
 }
 
 impl Window {
@@ -140,6 +142,7 @@ impl Window {
             reported_failure: Cell::new(false),
             session_dirty: Cell::new(false),
             popover: RefCell::new(None),
+            warned_about_overwrite: Cell::new(false),
         });
 
         this.clone().accept_dropped_files();
@@ -692,6 +695,7 @@ impl Window {
 
         self.connect_buffer(doc, &buffer);
         self.connect_view(&view);
+        self.watch_overwrite(&view);
         self.announce_capabilities(doc);
 
         // The label has to be refreshed explicitly here, and the reason is
@@ -874,6 +878,24 @@ impl Window {
             doc_ref.set_cursor_offset(iter.offset());
             if this.current_document().map(|d| d.id) == Some(doc_ref.id) {
                 this.status.set_position(iter.line(), iter.line_offset());
+            }
+        });
+    }
+
+    /// Keep the status bar honest about overwrite mode.
+    fn watch_overwrite(self: &Rc<Self>, view: &sourceview5::View) {
+        self.status.set_overwrite(view.overwrites());
+        let this = self.clone();
+        view.connect_overwrite_notify(move |v| {
+            this.status.set_overwrite(v.overwrites());
+            // Said out loud the first time it happens in a session, because
+            // the symptom — text disappearing as you type — reads as a broken
+            // editor rather than as a mode you switched into.
+            if v.overwrites() && !this.warned_about_overwrite.replace(true) {
+                this.banner.info(
+                    "Overwrite mode: typing now replaces what is there. Press Insert to go back.",
+                    Level::Warning,
+                );
             }
         });
     }
@@ -2267,6 +2289,15 @@ impl Window {
     }
 
     fn connect_status_actions(self: &Rc<Self>) {
+        // Clicking the indicator is the way out for someone who does not know
+        // which key put them here.
+        let this = self.clone();
+        self.status.overwrite.connect_clicked(move |_| {
+            if let Some(view) = this.current_view() {
+                view.set_overwrite(false);
+            }
+        });
+
         let this = self.clone();
         let button = self.status.line_ending.clone();
         self.status.line_ending.connect_clicked(move |anchor| {
@@ -2851,6 +2882,29 @@ impl Window {
             }
         }
         names
+    }
+
+    pub fn overwrite_for_test(&self) -> bool {
+        self.current_view().map(|v| v.overwrites()).unwrap_or(false)
+    }
+
+    /// What the status bar is showing about overwrite mode.
+    pub fn overwrite_indicator_for_test(&self) -> String {
+        if !self.status.overwrite.is_visible() {
+            return String::new();
+        }
+        self.status
+            .overwrite
+            .child()
+            .and_then(|c| c.downcast::<gtk::Label>().ok())
+            .map(|l| l.text().to_string())
+            .unwrap_or_default()
+    }
+
+    pub fn set_overwrite_for_test(&self, on: bool) {
+        if let Some(view) = self.current_view() {
+            view.set_overwrite(on);
+        }
     }
 
     pub fn set_text_for_test(&self, text: &str) {

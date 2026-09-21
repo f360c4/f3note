@@ -34,6 +34,7 @@ fn set_button_label(button: &gtk::Button, text: &str) {
 pub struct StatusBar {
     root: gtk::Box,
     position: gtk::Label,
+    pub overwrite: gtk::Button,
     pub encoding: gtk::Button,
     pub line_ending: gtk::Button,
     notice: gtk::Label,
@@ -62,6 +63,9 @@ impl StatusBar {
         let notice = cell(0.0);
         notice.set_hexpand(true);
         let unsaved = cell(1.0);
+        let overwrite = clickable(1.0);
+        overwrite.set_visible(false);
+        overwrite.set_tooltip_text(Some("Overwrite mode — click, or press Insert, to go back"));
         let encoding = clickable(1.0);
         let line_ending = clickable(1.0);
         encoding.set_tooltip_text(Some("Change how this file is decoded"));
@@ -70,6 +74,7 @@ impl StatusBar {
         root.append(&position);
         root.append(&notice);
         root.append(&unsaved);
+        root.append(&overwrite);
         root.append(&encoding);
         root.append(&line_ending);
 
@@ -80,7 +85,21 @@ impl StatusBar {
             line_ending,
             notice,
             unsaved,
+            overwrite,
         }
+    }
+
+    /// Show that typing is replacing text rather than inserting it.
+    ///
+    /// Only shown when it is on. The Insert key toggles this mode and is easy
+    /// to hit by accident — the symptom is text vanishing as you type, with
+    /// nothing on screen to explain it. A user hit exactly that and could not
+    /// tell whether the editor was broken. An indicator that only appears in
+    /// the unusual state costs nothing the rest of the time and answers the
+    /// question the moment it matters.
+    pub fn set_overwrite(&self, on: bool) {
+        self.overwrite.set_visible(on);
+        set_button_label(&self.overwrite, if on { "OVR" } else { "" });
     }
 
     /// How many tabs hold changes that are not on disk.

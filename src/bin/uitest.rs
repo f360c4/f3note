@@ -232,6 +232,27 @@ fn run(window: Rc<Window>) {
         window.refresh_tab_label_for_test(&doc);
     }
 
+    println!("typing inserts rather than overwrites");
+    check!(
+        !window.overwrite_for_test(),
+        "the editor must not start in overwrite mode"
+    );
+    // Insert toggles this mode and is easy to hit by accident. The symptom —
+    // text vanishing as you type — reads as a broken editor, so the state has
+    // to be visible. A user hit exactly this and had no way to tell.
+    window.set_overwrite_for_test(true);
+    check!(
+        window.overwrite_indicator_for_test() == "OVR",
+        "overwrite mode must be shown in the status bar, saw {:?}",
+        window.overwrite_indicator_for_test()
+    );
+    window.set_overwrite_for_test(false);
+    check!(
+        window.overwrite_indicator_for_test().is_empty(),
+        "the indicator must go away again, saw {:?}",
+        window.overwrite_indicator_for_test()
+    );
+
     println!("line operations");
     {
         window.new_untitled();
