@@ -1,6 +1,6 @@
 [package]
 name = "f3note"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2021"
 # 1.92 is not a preference. The gtk-rs family — cairo-rs, gdk-pixbuf and
 # nineteen others — requires it, so declaring anything lower is a claim the
