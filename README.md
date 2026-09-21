@@ -2,8 +2,11 @@
 
 # f3note
 
-A fast, minimal tabbed text editor for Wayland. Windows Notepad's simplicity,
-Notepad++'s tabs and crash recovery, in a binary that opens in about 150ms.
+**The text editor that does not lose your work.**
+
+Windows Notepad's simplicity and Notepad++'s tabs, for Wayland, opening in
+about 150ms. The speed is a consequence of keeping it small; not losing your
+work is the point.
 
 ![f3note](docs/images/editor.png)
 
