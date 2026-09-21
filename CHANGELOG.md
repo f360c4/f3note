@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.0.1
+
+Packaging only; the editor is unchanged.
+
+- The AUR recipe is pinned to a commit hash rather than a Git tag, and fetches
+  an uploaded release asset rather than GitHub's generated archive. A tag can
+  be moved, so a later build could compile something other than what was
+  reviewed; and GitHub's generated archives are built on demand and have
+  changed before, which makes a checksum over one unstable even when the
+  content is not.
+- `sha256sums` is a real hash. It was `SKIP`, which means the build accepts
+  whatever it downloads.
+- `scripts/release.sh` builds the tarball reproducibly and fills the recipe
+  in, so the checksum is verifiable rather than asserted.
+
 ## 1.0.0
 
 First release.

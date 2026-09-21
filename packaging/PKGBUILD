@@ -13,7 +13,7 @@ makedepends=('cargo')
 # implicit in a tag, because a tag is a mutable pointer: whoever controls the
 # repository can move it, and a later makepkg would then compile something
 # other than what was reviewed. A commit hash cannot be moved.
-_commit=__COMMIT__
+_commit=d344782080b157af5a68bf045d3d1ea07b755c53
 
 # A release asset, not GitHub's generated /archive/<ref>.tar.gz. Those are
 # built on demand and GitHub has never promised them to be byte-identical
@@ -21,7 +21,7 @@ _commit=__COMMIT__
 # across Homebrew, the AUR and Nix at once. An uploaded asset is stored, not
 # regenerated.
 source=("$pkgname-$pkgver.tar.gz::$url/releases/download/v$pkgver/$pkgname-$pkgver.tar.gz")
-sha256sums=('__SHA__')
+sha256sums=('a22af9107d30f4d5d33de8f21feeb57f5e215e129fc6422daaea0b9baccd45dc')
 
 # The tarball is reproducible rather than something you have to take on
 # trust. It is `git archive` of the commit above, and you can rebuild it and
