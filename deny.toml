@@ -1,0 +1,26 @@
+# Licence policy for f3note's dependencies.
+#
+# f3note itself is MIT. A dependency under a copyleft licence that reaches the
+# binary would change what f3note can be, so the allowed set is explicit and
+# anything outside it fails the build rather than being noticed at release
+# time.
+
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+    # File-level copyleft. Compatible with an MIT project as a dependency,
+    # but the files themselves stay under it, so attribution is required.
+    "MPL-2.0",
+]
+confidence-threshold = 0.9
+
+[bans]
+multiple-versions = "allow"

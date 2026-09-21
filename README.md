@@ -28,27 +28,51 @@ bus too, which is where most single-instance implementations quietly fail.
 already defines, and follow it live — switch the desktop theme and the editor
 recolours without restarting or losing a tab.
 
+**You can go back.** Every version is kept as you work, so an edit you regret
+an hour ago and already saved is still recoverable — which is exactly the case
+a "do you want to save?" prompt cannot help with.
+
 **It tells you the truth about its limits.** See below.
 
 ## Install
+
+**Arch, Manjaro, Omarchy** — from the AUR:
+
+```sh
+yay -S f3note
+```
+
+**Anywhere with GTK 4.12 or newer** — build it:
 
 ```sh
 git clone https://github.com/f360c4/f3note
 cd f3note
 cargo build --release
 install -Dm755 target/release/f3note ~/.local/bin/f3note
+install -Dm644 packaging/io.github.f360c4.f3note.desktop \
+  ~/.local/share/applications/io.github.f360c4.f3note.desktop
+install -Dm644 packaging/f3note.svg \
+  ~/.local/share/icons/hicolor/scalable/apps/io.github.f360c4.f3note.svg
 ```
 
-Needs GTK 4.12 or newer and GtkSourceView 5.10 or newer, both of which most
-distributions have shipped since 2023. `docs/PORTING.md` lists which
-distributions are covered and which need a different route.
-
-| Distribution | Package |
+| Distribution | Build dependencies |
 |---|---|
-| Arch | `pacman -S gtk4 gtksourceview5` |
+| Arch | `pacman -S gtk4 gtksourceview5 rustup` |
 | Debian 13+, Ubuntu 24.04+ | `apt install libgtk-4-dev libgtksourceview-5-dev` |
 | Fedora | `dnf install gtk4-devel gtksourceview5-devel` |
 | Alpine 3.20+ | `apk add gtk4.0-dev gtksourceview5-dev` |
+
+**Ubuntu 22.04, Debian 12, RHEL 9** — their GTK is too old to build against,
+so take the AppImage. Download it, make it executable, run it:
+
+```sh
+chmod +x f3note-x86_64.AppImage
+./f3note-x86_64.AppImage notes.txt
+```
+
+It carries its own GTK and needs nothing installed. `docs/PORTING.md` has the
+full matrix of which distributions take which route, and
+`scripts/build-appimage.sh` builds one yourself.
 
 ## Keyboard
 
@@ -56,16 +80,25 @@ distributions are covered and which need a different route.
 |---|---|
 | `Ctrl+O` | open a file — or drop one on the window |
 | `Ctrl+S` / `Ctrl+Shift+S` | save / save as |
+| `Ctrl+Shift+R` | revert — discard changes and reload from disk |
+| `Ctrl+Shift+H` | earlier versions of this file |
 | `Ctrl+T` / `Ctrl+W` | new tab / close tab |
 | `Ctrl+Shift+W` | close and forget — also deletes what f3note stored about it |
 | `Alt+1`..`Alt+8`, `Alt+9` | jump to tab by position; `Alt+9` is the last tab |
 | `Ctrl+Tab` | previously used tab, not the next one along |
-| `Ctrl+P` | jump to a tab by typing part of its name |
+| `Ctrl+P` | jump to a tab, or reopen a recent file, by typing |
+| `Ctrl+Shift+E` | named sessions — save and switch sets of tabs |
 | `Ctrl+F` / `Ctrl+H` | find / find and replace |
+| `Ctrl+Shift+F` | search the open tabs and this folder |
 | `Ctrl+K` / `Ctrl+Shift+K` | next / previous match |
 | `Ctrl+G` | go to line |
+| `Ctrl+D` | duplicate line or selection |
+| `Alt+Up` / `Alt+Down` | move line or selection |
+| `Ctrl+/` | comment or uncomment |
 | `Ctrl++` / `Ctrl+-` / `Ctrl+0` | zoom in / out / reset — also `Ctrl+Scroll` |
 | `Ctrl+Q` | quit |
+
+The encoding and line-ending fields in the status bar are clickable.
 
 Your compositor's close-window shortcut works too. f3note will not stop you
 with a dialog: everything is already mirrored, so closing is always safe.
@@ -100,13 +133,11 @@ pretending the problem is handled:
 
 ![Long lines](docs/images/longlines.png)
 
-**Version history is not in the interface yet.** Snapshots are written from the
-first release, so nothing is being lost while the time-travel view is built.
-They are under `~/.local/state/f3note/docs/<key>/history/`, compressed with
-zstd.
-
 **No split view, no multiple cursors, no plugins, no LSP.** Deliberately. If
 you want those, you want a different editor, and there are good ones.
+
+**Searching is scoped to your tabs and the folder you are in.** `ripgrep` is
+better at searching a codebase and f3note is not trying to replace it.
 
 ## Building and testing
 

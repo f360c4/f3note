@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=f3note
+GenericName=Text Editor
+Comment=A fast, minimal tabbed text editor
+Exec=f3note %F
+Icon=io.github.f360c4.f3note
+Terminal=false
+Categories=Utility;TextEditor;
+Keywords=text;editor;notes;notepad;tabs;
+StartupNotify=true
+StartupWMClass=io.github.f360c4.f3note
+MimeType=text/plain;text/markdown;text/x-log;application/json;text/x-csrc;text/x-chdr;text/x-python;text/x-shellscript;application/x-yaml;text/csv;
+SingleMainWindow=true

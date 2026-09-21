@@ -1,0 +1,100 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: Build and test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install GTK
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libgtksourceview-5-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Formatting
+        run: cargo fmt --check
+
+      # A borrow guard that outlives the statement that created it has caused
+      # three separate crashes here. The shape is banned outright.
+      - name: Borrow guards
+        run: ./scripts/check-borrows.sh
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Tests
+        run: cargo test --locked
+
+      # The window tests need a compositor. Everything else above runs
+      # headless; this gives the GTK glue somewhere to draw.
+      - name: Window and recovery tests
+        run: |
+          sudo apt-get install -y weston
+          mkdir -p "$XDG_RUNTIME_DIR"
+          weston --backend=headless-backend.so --socket=wayland-ci --idle-time=0 &
+          sleep 3
+          export WAYLAND_DISPLAY=wayland-ci
+          cargo build --release
+          G_DEBUG=fatal-criticals ./target/release/uitest
+          ./scripts/crashtest.sh
+        env:
+          XDG_RUNTIME_DIR: /tmp/runtime-ci
+
+  licenses:
+    name: Dependency licences
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@cargo-deny
+      - run: cargo deny check licenses
+
+  msrv:
+    name: Oldest supported Rust
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install GTK
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libgtksourceview-5-dev
+      # Distribution toolchains lag badly — Debian 13 ships 1.85, Alpine 1.87.
+      # A build that only works on the newest Rust is a build packagers cannot
+      # ship.
+      - uses: dtolnay/rust-toolchain@1.85.0
+      - run: cargo check --locked
+
+  appimage:
+    name: AppImage
+    runs-on: ubuntu-22.04
+    # Built on the oldest runner available: an AppImage bundles the glibc it
+    # was linked against, so building on a newer system produces one that
+    # refuses to start on older ones.
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install GTK
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libgtksourceview-5-dev libfuse2
+      - uses: dtolnay/rust-toolchain@stable
+      - run: ./scripts/build-appimage.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f3note-x86_64.AppImage
+          path: target/f3note-x86_64.AppImage

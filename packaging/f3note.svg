@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- f3note. A sheet with a tab, drawn with currentColor so it reads on any
+     background, and no gradients or shadows so it stays legible at 16px. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <g fill="none" stroke="#7aa2f7" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round">
+    <!-- the tab -->
+    <path d="M12 12 h18 v7 H12 z" fill="#7aa2f7" stroke="none"/>
+    <!-- the sheet -->
+    <path d="M10 19 h44 v33 a2 2 0 0 1 -2 2 H12 a2 2 0 0 1 -2 -2 z"/>
+    <!-- lines of text, the last one short -->
+    <path d="M18 29 h28 M18 37 h28 M18 45 h16" stroke-width="3" opacity="0.75"/>
+  </g>
+</svg>

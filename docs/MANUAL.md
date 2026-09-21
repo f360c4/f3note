@@ -35,6 +35,27 @@ order, so pressing `Ctrl+P` and `Enter` goes where `Ctrl+Tab` would.
 Tabs can be dragged to reorder. A tab with unsaved changes is marked
 `*filename` in the theme's accent colour.
 
+## Going back
+
+`Ctrl+Shift+R` discards the unsaved changes in the current tab and reloads the
+file from disk. It asks first, because it is destructive — and the version it
+throws away goes into the history, so even that is reversible.
+
+`Ctrl+Shift+H` lists this document's earlier versions and puts one back. This
+is the part no save prompt can substitute for: the list survives saving, so
+"I broke this an hour ago and saved it" is recoverable. Restoring is one undo
+step, and the version being replaced is kept too, so going back is never a
+one-way door.
+
+## Sessions
+
+`Ctrl+Shift+E` saves the open tabs under a name and switches between saved
+sets. Useful when you work in bursts: a set of config files, a set of notes,
+and neither cluttering the other.
+
+Switching loses nothing. The tabs being closed are mirrored exactly as they
+are on exit, so unsaved work in a session you leave is there when you return.
+
 ## Finding and replacing
 
 `Ctrl+F` opens a strip at the bottom, not a dialog. It never covers your text
@@ -48,6 +69,30 @@ was.
 `Ctrl+H` is the same strip with a replacement field. `Enter` there replaces the
 current match; `Ctrl+Enter` replaces all of them, as one undo step — `Ctrl+Z`
 puts every one of them back at once.
+
+### Across files
+
+`Ctrl+Shift+F` searches the open tabs and the folder the current file is in.
+Open tabs are searched from what is on screen, so unsaved changes are found
+too.
+
+The folder walk is bounded so it always returns quickly: it skips `.git`,
+`node_modules`, `target` and friends, ignores anything that looks binary,
+caps file size and depth, and does not follow symlinks. It is not a code
+search tool — `ripgrep` is better at that and f3note is not competing with it.
+
+## Editing
+
+| | |
+|---|---|
+| `Ctrl+D` | duplicate the line, or the selection |
+| `Alt+Up` / `Alt+Down` | move the line, or the selection |
+| `Ctrl+/` | comment or uncomment |
+
+Commenting uses the marker for the file type, and lines up the markers at the
+shallowest indentation in the block so it keeps its shape. A block that is
+already fully commented gets uncommented; a mixed one gets commented. Each
+command is one undo step.
 
 ## How your work is kept
 
@@ -79,13 +124,10 @@ f3note stored about it** — the mirror and the history. Use it instead of
 ### Version history
 
 Every time the mirror changes, a compressed snapshot is kept, up to 200 per
-document and bounded by total size. They live in
-`~/.local/state/f3note/docs/<key>/history/` as zstd-compressed files, named by
-sequence number.
+document and bounded by total size. `Ctrl+Shift+H` browses them.
 
-There is no interface for browsing them yet. They are written from the first
-release specifically so that nothing is lost while that is built. To recover
-one by hand:
+They live in `~/.local/state/f3note/docs/<key>/history/` as zstd-compressed
+files, named by sequence number, so they are recoverable by hand too:
 
 ```sh
 ls ~/.local/state/f3note/docs/*/history/
@@ -169,6 +211,8 @@ measured on.
 | `~/.local/state/f3note/session.json` | which tabs are open |
 | `~/.local/state/f3note/docs/<key>/mirror` | the latest contents of each tab |
 | `~/.local/state/f3note/docs/<key>/history/` | compressed older versions |
+| `~/.local/state/f3note/sessions/` | named sessions |
+| `~/.local/state/f3note/recent` | recently opened files |
 | `~/.local/share/f3note/styles/` | generated syntax colours |
 
 State and configuration are separate on purpose: state must survive, so it is
