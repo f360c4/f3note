@@ -78,11 +78,7 @@ mod tests {
     /// well as the process: two tests sharing one path overwrite each other.
     fn temp_with(name: &str, contents: &str) -> std::path::PathBuf {
         let mut p = std::env::temp_dir();
-        p.push(format!(
-            "f3note_font_{}_{}.toml",
-            std::process::id(),
-            name
-        ));
+        p.push(format!("f3note_font_{}_{}.toml", std::process::id(), name));
         let mut f = std::fs::File::create(&p).unwrap();
         f.write_all(contents.as_bytes()).unwrap();
         p
@@ -96,7 +92,10 @@ mod tests {
 
     #[test]
     fn reads_base_size_from_the_font_section_only() {
-        let p = temp_with("section", "[bar]\nbase-size = 99\n\n[font]\nbase-size = 14\n");
+        let p = temp_with(
+            "section",
+            "[bar]\nbase-size = 99\n\n[font]\nbase-size = 14\n",
+        );
         assert_eq!(Font::size_from_omarchy_shell(&p), Some(14));
         std::fs::remove_file(p).ok();
     }

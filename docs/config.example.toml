@@ -1,0 +1,59 @@
+# f3note configuration — ~/.config/f3note/config.toml
+#
+# Every setting below is optional and shown with its default. Delete the file
+# entirely and f3note behaves exactly the same; it is only worth writing the
+# lines you actually want to change.
+
+[appearance]
+
+# Leave unset to follow the system monospace font, which is almost always the
+# right choice: the family comes from fontconfig, so changing the desktop font
+# changes this too, with no restart. Set it to override, e.g.
+#   font = "JetBrainsMono Nerd Font 12"
+# font =
+
+# Window background transparency, from 0.1 to 1.0.
+#
+# Opaque by default, on purpose. Transparency is only useful under a
+# compositor blur rule — without one, a see-through editor is just a
+# harder-to-read editor. On Hyprland, enable blur for f3note and then lower
+# this. Note that Omarchy ships with blur disabled and applies its own window
+# opacity compositor-side, so check there first if nothing seems to change.
+opacity = 1.0
+
+line_numbers = true
+wrap = true
+
+# Off by default: f3note should open looking like a notepad, not an IDE.
+# Turning this on costs a little startup time the first time a document is
+# highlighted, because GtkSourceView scans its language definitions then.
+syntax_highlighting = false
+
+highlight_current_line = false
+
+# "auto" follows the system: Omarchy's current theme if present, otherwise the
+# user's ~/.config/f3note/theme.toml, otherwise the desktop light/dark
+# preference. "dark" or "light" stop following anything and use the built-in
+# palette of that mode.
+theme = "auto"
+
+[editor]
+
+tab_width = 4
+insert_spaces = false
+
+# How autosave is paced.
+#
+# A mirror is written once typing pauses for `autosave_idle_seconds`. If
+# someone types without ever pausing, `autosave_max_seconds` forces a write
+# anyway. The gap between the two is the most work a power cut can cost.
+autosave_idle_seconds = 2
+autosave_max_seconds = 7
+
+# Documents larger than this keep a mirror — recovery always works — but no
+# version history. Keeping twenty copies of a large file is a disk leak, not a
+# feature.
+history_max_bytes = 8388608
+
+# Versions kept per document before the oldest are collected.
+history_versions = 20
