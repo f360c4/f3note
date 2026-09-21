@@ -45,26 +45,43 @@ a "do you want to save?" prompt cannot help with.
 
 ## Install
 
-Clone it and build it. That is the supported route and the one that is tested
-on every push.
+### The quick way
+
+Download the AppImage from the [releases
+page](https://github.com/f360c4/f3note/releases), make it executable, run it.
+Two seconds, nothing installed, no toolchain:
+
+```sh
+chmod +x f3note-x86_64.AppImage
+./f3note-x86_64.AppImage notes.txt
+```
+
+It needs **glibc 2.39 or newer**, because that is what the machine that builds
+it has. Check with `ldd --version`. An AppImage is usually a way onto *older*
+systems and this one is not — the systems old enough to need it are also too
+old to build it.
+
+### From source
 
 ```sh
 git clone https://github.com/f360c4/f3note
 cd f3note
-cargo build --release
-install -Dm755 target/release/f3note ~/.local/bin/f3note
-install -Dm644 packaging/io.github.f360c4.f3note.desktop \
-  ~/.local/share/applications/io.github.f360c4.f3note.desktop
-install -Dm644 packaging/f3note.svg \
-  ~/.local/share/icons/hicolor/scalable/apps/io.github.f360c4.f3note.svg
+./scripts/install.sh
 ```
+
+The script checks what is missing before doing anything and names the exact
+command for your distribution, then builds and installs into `~/.local` — no
+root, nothing outside your home. About a minute and a half on a clean machine.
+
+It is short and worth reading first. It does not pipe anything from the
+internet into a shell.
 
 You need **GTK 4.12+**, **GtkSourceView 5.10+** and **Rust 1.92+**. That last
 one is not a preference — the gtk-rs crates require it — and it is newer than
-several distributions ship, so `rustup` may be easier than your package
+several distributions ship, so `rustup` is often easier than your package
 manager's Rust.
 
-| Distribution | Build dependencies | Works? |
+| Distribution | Dependencies | Works? |
 |---|---|---|
 | Arch, Manjaro, Omarchy | `pacman -S gtk4 gtksourceview5 rustup` | yes |
 | Fedora 39+ | `dnf install gtk4-devel gtksourceview5-devel` | yes |
@@ -74,15 +91,9 @@ manager's Rust.
 | openSUSE Leap 16+ | `zypper in gtk4-devel gtksourceview5-devel` | yes |
 | **Ubuntu 22.04, Debian 12, RHEL 9** | — | **no: GTK too old** |
 
-There is an `.AppImage` on the [releases
-page](https://github.com/f360c4/f3note/releases). Be aware of what it is and
-is not: it needs glibc 2.39 or newer, because that is what the machine that
-builds it has. An AppImage is usually a way onto *older* systems, and this one
-is not — the systems old enough to need it are also too old to build it. It
-saves you installing a toolchain, nothing more.
-
-Not packaged for any distribution yet. An AUR `PKGBUILD` is in `packaging/`
-and works, but has not been submitted.
+Not in any distribution's repositories yet. An AUR `PKGBUILD` is in
+`packaging/` and is ready — see [docs/AUR.md](docs/AUR.md) — but has not been
+submitted.
 
 ## Keyboard
 
