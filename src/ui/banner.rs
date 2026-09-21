@@ -129,7 +129,8 @@ impl Banner {
 
         // Replace any previous handler rather than accumulating them: the same
         // button is reused for every offer the banner makes.
-        if let Some(id) = self.action_handler.borrow_mut().take() {
+        let previous = self.action_handler.borrow_mut().take();
+        if let Some(id) = previous {
             self.action.disconnect(id);
         }
         let root = self.root.clone();

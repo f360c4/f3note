@@ -1265,16 +1265,44 @@ impl Window {
     /// notebook is the right anchor: it is the widget the popover is logically
     /// about, and pointing at a thin rectangle across its top gives the
     /// command-palette placement people expect.
+    /// Take the current popover out of its slot, leaving it empty.
+    ///
+    /// A method rather than an inline `self.popover.borrow_mut().take()`
+    /// because the borrow guard must not outlive the statement: `popdown()`
+    /// emits `closed` synchronously, and that handler reads the same RefCell.
+    /// Written inline inside an `if let`, the guard survives the whole block
+    /// and the editor aborts. Keeping every access behind a method that
+    /// returns owned data makes that shape impossible to write by accident.
+    fn take_popover(&self) -> Option<gtk::Popover> {
+        self.popover.borrow_mut().take()
+    }
+
+    fn set_popover(&self, popover: Option<gtk::Popover>) {
+        *self.popover.borrow_mut() = popover;
+    }
+
+    fn popover_is(&self, popover: &gtk::Popover) -> bool {
+        self.popover
+            .borrow()
+            .as_ref()
+            .map(|p| p == popover)
+            .unwrap_or(false)
+    }
+
     fn anchor_popover(&self, popover: &gtk::Popover) {
         // Only one popover at a time. Pressing Ctrl+P while the go-to-line box
         // is open is a normal thing to do, and stacking a second grabbing
         // popup on the first is refused by GDK with "Tried to map a grabbing
         // popup with a non-top most parent".
-        if let Some(previous) = self.popover.borrow_mut().take() {
+        let previous = self.take_popover();
+        if let Some(previous) = previous {
+            // Only pop down. `popdown` emits `closed` synchronously, and that
+            // handler is what unparents; calling `unparent` here as well
+            // unparents twice and GTK complains about a widget that is no
+            // longer one.
             previous.popdown();
-            previous.unparent();
         }
-        *self.popover.borrow_mut() = Some(popover.clone());
+        self.set_popover(Some(popover.clone()));
 
         popover.set_parent(&self.notebook);
         popover.set_position(gtk::PositionType::Bottom);
@@ -1321,16 +1349,14 @@ impl Window {
     /// one. Guarded so a popover replaced by a newer one does not clear the
     /// newer one's slot on its way out.
     fn dismiss_popover(&self, popover: &gtk::Popover) {
-        let is_current = self
-            .popover
-            .borrow()
-            .as_ref()
-            .map(|p| p == popover)
-            .unwrap_or(false);
-        if is_current {
-            *self.popover.borrow_mut() = None;
+        if self.popover_is(popover) {
+            self.set_popover(None);
         }
-        popover.unparent();
+        // `closed` can arrive more than once, and a popover that was replaced
+        // before it ever opened may have been unparented already.
+        if popover.parent().is_some() {
+            popover.unparent();
+        }
     }
 
     fn jump_to_line(self: &Rc<Self>, line: i32) {
@@ -1523,28 +1549,57 @@ impl Window {
         }
     }
 
+    /// Replace every match, returning how many were replaced.
+    ///
+    /// The `sourceview5` binding for this cannot be used. It declares the
+    /// result as a success flag:
+    ///
+    /// ```ignore
+    /// assert_eq!(is_ok == 0, !error.is_null());
+    /// ```
+    ///
+    /// but `gtk_source_search_context_replace_all` returns a `guint` count of
+    /// replacements, not a boolean. Replacing nothing returns 0 with no error
+    /// set, the assertion fails, and the process aborts — so searching for
+    /// something absent and asking to replace it crashes the editor. Calling
+    /// the C function directly gives the correct semantics, and the count is
+    /// what we want to report anyway. Worth sending upstream.
+    fn replace_all(
+        context: &sourceview5::SearchContext,
+        replacement: &str,
+    ) -> Result<u32, glib::Error> {
+        use gtk::glib::translate::{from_glib_full, ToGlibPtr};
+        unsafe {
+            let mut error = std::ptr::null_mut();
+            let replaced = sourceview5::ffi::gtk_source_search_context_replace_all(
+                context.to_glib_none().0,
+                replacement.to_glib_none().0,
+                replacement.len() as i32,
+                &mut error,
+            );
+            if error.is_null() {
+                Ok(replaced)
+            } else {
+                Err(from_glib_full(error))
+            }
+        }
+    }
+
     fn replace_current(self: &Rc<Self>, all: bool) {
         let Some(context) = self.search.borrow().clone() else {
             return;
         };
         let replacement = self.findbar.replacement.text();
         if all {
-            // The count has to be read before replacing: afterwards the
-            // context reports how many of the *replacement* text it finds,
-            // which is not what the user wants to be told.
-            let total = context.occurrences_count();
-            match context.replace_all(replacement.as_str()) {
-                Ok(()) => {
-                    let n = total.max(0);
-                    self.banner.info(
-                        &if n == 1 {
-                            "1 occurrence replaced".to_owned()
-                        } else {
-                            format!("{n} occurrences replaced")
-                        },
-                        Level::Info,
-                    );
-                }
+            if self.findbar.query.text().is_empty() {
+                return;
+            }
+            match Self::replace_all(&context, replacement.as_str()) {
+                Ok(0) => self.banner.info("Nothing to replace", Level::Info),
+                Ok(1) => self.banner.info("1 occurrence replaced", Level::Info),
+                Ok(n) => self
+                    .banner
+                    .info(&format!("{n} occurrences replaced"), Level::Info),
                 Err(e) => self.banner.info(&format!("{e}"), Level::Error),
             }
             return;

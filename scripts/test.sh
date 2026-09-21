@@ -16,6 +16,9 @@ result() { if [ "$1" -eq 0 ]; then echo "  ok"; else echo "  FAILED"; FAILED=1; 
 step "build"
 cargo build --release --quiet; result $?
 
+step "borrow guards"
+./scripts/check-borrows.sh; result $?
+
 step "clippy"
 cargo clippy --all-targets --quiet -- -D warnings 2>&1 | tail -5; result ${PIPESTATUS[0]}
 

@@ -135,7 +135,11 @@ impl State {
         // this when a session bus exists; the socket is what covers the case
         // where there is none, and where GApplication would otherwise let a
         // second process start and write the same recovery state.
-        if let Some(listener) = self.listener.borrow_mut().take() {
+        // Taken into a local before the block: a guard that outlives the
+        // statement is how two crashes got here, so the shape is banned by
+        // scripts/check-borrows.sh.
+        let listener = self.listener.borrow_mut().take();
+        if let Some(listener) = listener {
             let window = window.clone();
             if let Err(e) = ipc::listen(listener, move |paths| {
                 for path in paths {

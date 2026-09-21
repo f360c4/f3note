@@ -205,7 +205,11 @@ impl Document {
 
     /// The full path, for the window title and the tab tooltip.
     pub fn describe(&self) -> String {
-        match self.meta.borrow().path.as_ref() {
+        // Cloned out before matching: `title()` reads the same RefCell, and a
+        // guard held across the arms is the shape that has twice aborted this
+        // editor from inside a GTK callback.
+        let path = self.meta.borrow().path.clone();
+        match path {
             Some(p) => p.display().to_string(),
             None => self.title(),
         }

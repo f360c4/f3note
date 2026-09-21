@@ -182,6 +182,23 @@ fn run(window: Rc<Window>) {
     window.set_find_query_for_test("zzzzz-not-present-zzzzz");
     window.find_step_for_test(true);
 
+    // Replacing when there is nothing to replace. This aborted the editor:
+    // the sourceview5 binding for replace_all reads the result as a success
+    // flag, but the C function returns a count, so zero replacements looked
+    // like a failure with no error attached and its assertion fired.
+    println!("replacing something that is not there");
+    window.set_replacement_for_test("never-used");
+    window.replace_for_test(true);
+    check!(
+        window.current_document().is_some(),
+        "replacing nothing must not take the document with it"
+    );
+
+    println!("replacing with an empty query");
+    window.set_find_query_for_test("");
+    window.replace_for_test(true);
+    window.replace_for_test(false);
+
     println!("go to line");
     window.jump_to_line_for_test(1);
     // Deliberately out of range in both directions: the caller is a text box
@@ -189,6 +206,15 @@ fn run(window: Rc<Window>) {
     window.jump_to_line_for_test(-5);
     window.jump_to_line_for_test(999_999);
     window.goto_line_for_test();
+
+    println!("opening popovers repeatedly, and over each other");
+    // Each popover replaces the one before it. Popping down emits `closed`,
+    // which is what unparents; doing it again by hand unparented twice and
+    // GTK complained the widget was no longer one.
+    for _ in 0..3 {
+        window.goto_line_for_test();
+        window.open_switcher_for_test();
+    }
 
     println!("tab switcher popover");
     // GDK may log "Tried to map a grabbing popup with a non-top most parent"
