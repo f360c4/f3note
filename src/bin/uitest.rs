@@ -86,6 +86,14 @@ fn run(window: Rc<Window>) {
 
     // This is the exact step that panicked: closing a tab while others remain
     // makes the editor pick the most recently used one to move to.
+    println!("file drops open files rather than pasting paths");
+    let targets = window.drop_targets_for_test();
+    println!("  drop handlers on the view: {targets:?}");
+    check!(
+        targets.len() == 1,
+        "expected exactly our own drop target, found {targets:?}"
+    );
+
     println!("tabs are actually readable");
     for index in 0..window.tab_count() {
         let (text, minimum) = window

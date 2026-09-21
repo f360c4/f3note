@@ -644,6 +644,7 @@ impl Window {
 
         let config = self.engine.config();
         self.apply_document_capabilities(&view, &buffer, doc, &config);
+        self.take_over_drops(&view);
 
         let scroller = gtk::ScrolledWindow::builder()
             .child(&view)
@@ -896,6 +897,11 @@ impl Window {
     /// COPY silently refuses drags that arrive proposing MOVE — which is what
     /// a plain drag from some file managers does.
     fn accept_dropped_files(self: Rc<Self>) {
+        self.window.add_controller(self.file_drop_target());
+    }
+
+    /// A drop target that opens files rather than pasting their paths.
+    fn file_drop_target(self: &Rc<Self>) -> gtk::DropTarget {
         let drop = gtk::DropTarget::new(
             gdk::FileList::static_type(),
             gdk::DragAction::COPY | gdk::DragAction::MOVE,
@@ -917,7 +923,38 @@ impl Window {
             }
             opened
         });
-        self.window.add_controller(drop);
+        drop
+    }
+
+    /// Take file drops away from the text view.
+    ///
+    /// GtkTextView installs its own drop target, and it reaches the drop
+    /// before anything on the window does. Dropping a file on the text
+    /// therefore pasted its path in as a string instead of opening it — the
+    /// editor did exactly the wrong thing with the gesture people try first.
+    ///
+    /// The built-in target is removed and replaced with one that opens files.
+    /// Dropping selected *text* still works: that is a separate handler.
+    fn take_over_drops(self: &Rc<Self>, view: &sourceview5::View) {
+        let controllers = view.observe_controllers();
+        let mut existing = Vec::new();
+        for index in 0..controllers.n_items() {
+            let Some(object) = controllers.item(index) else {
+                continue;
+            };
+            if let Ok(controller) = object.downcast::<gtk::EventController>() {
+                // Both spellings exist depending on GTK version; neither is
+                // wanted here.
+                let name = controller.type_().name();
+                if name == "GtkDropTarget" || name == "GtkDropTargetAsync" {
+                    existing.push(controller);
+                }
+            }
+        }
+        for controller in existing {
+            view.remove_controller(&controller);
+        }
+        view.add_controller(self.file_drop_target());
     }
 
     fn connect_signals(self: &Rc<Self>) {
@@ -1797,6 +1834,27 @@ impl Window {
         let label = self.tab_label_widget(&page)?;
         let (minimum, _, _, _) = label.measure(gtk::Orientation::Horizontal, -1);
         Some((label.text().to_string(), minimum))
+    }
+
+    /// Names of the drop-handling controllers on the current text view.
+    ///
+    /// GtkTextView ships its own, which reached file drops first and pasted
+    /// the path in as text. The test asserts exactly one survives — ours.
+    pub fn drop_targets_for_test(&self) -> Vec<String> {
+        let Some(view) = self.current_view() else {
+            return Vec::new();
+        };
+        let controllers = view.observe_controllers();
+        let mut names = Vec::new();
+        for index in 0..controllers.n_items() {
+            if let Some(object) = controllers.item(index) {
+                let name = object.type_().name().to_string();
+                if name.contains("DropTarget") {
+                    names.push(name);
+                }
+            }
+        }
+        names
     }
 
     pub fn tab_count(&self) -> usize {
