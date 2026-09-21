@@ -8,6 +8,7 @@
 pub mod atomic;
 pub mod config;
 pub mod document;
+pub mod edit;
 pub mod fuzzy;
 pub mod ipc;
 pub mod mru;

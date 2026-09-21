@@ -15,6 +15,7 @@ pub struct StatusBar {
     encoding: gtk::Label,
     line_ending: gtk::Label,
     notice: gtk::Label,
+    unsaved: gtk::Label,
 }
 
 fn cell(xalign: f32) -> gtk::Label {
@@ -38,11 +39,13 @@ impl StatusBar {
         let position = cell(0.0);
         let notice = cell(0.0);
         notice.set_hexpand(true);
+        let unsaved = cell(1.0);
         let encoding = cell(1.0);
         let line_ending = cell(1.0);
 
         root.append(&position);
         root.append(&notice);
+        root.append(&unsaved);
         root.append(&encoding);
         root.append(&line_ending);
 
@@ -52,7 +55,22 @@ impl StatusBar {
             encoding,
             line_ending,
             notice,
+            unsaved,
         }
+    }
+
+    /// How many tabs hold changes that are not on disk.
+    ///
+    /// Shown permanently rather than raised in a dialog when the window
+    /// closes. A warning at closing time is easy to dismiss without reading
+    /// and arrives too late to act on; a count that is simply always there is
+    /// what makes the state something the user knows rather than discovers.
+    pub fn set_unsaved(&self, count: usize) {
+        self.unsaved.set_text(&match count {
+            0 => String::new(),
+            1 => "1 unsaved".to_owned(),
+            n => format!("{n} unsaved"),
+        });
     }
 
     pub fn widget(&self) -> &gtk::Box {

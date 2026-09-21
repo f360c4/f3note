@@ -844,6 +844,7 @@ impl Window {
         buffer.connect_modified_changed(move |b| {
             doc_ref.set_modified(b.is_modified());
             this.refresh_tab_label(&doc_ref);
+            this.status.set_unsaved(this.unsaved_count());
         });
 
         // Every edit arms the autosave schedule. The schedule, not this
@@ -1016,6 +1017,7 @@ impl Window {
         self.mru.borrow_mut().touch(doc.id);
         self.session_dirty.set(true);
         self.status.set_document(&doc);
+        self.status.set_unsaved(self.unsaved_count());
         self.update_window_title(&doc);
 
         if let Some(buffer) = doc.buffer() {
@@ -1046,6 +1048,62 @@ impl Window {
         if let Some(view) = self.view_for(index) {
             view.grab_focus();
         }
+    }
+
+    /// Throw away unsaved changes and go back to what is on disk.
+    ///
+    /// This is the piece the design was missing. f3note never asks "do you
+    /// want to save?", because it does not need to — nothing is lost on
+    /// closing. But that also meant an edit made by accident followed you
+    /// around forever: close, reopen, and there it was again, with no way to
+    /// say "forget it, give me the file". The dialog other editors show is a
+    /// crude version of this, offered only at the one moment they remember to
+    /// ask. Offering it whenever the user notices is strictly better.
+    ///
+    /// Destructive, so it confirms first — in the banner rather than a modal,
+    /// like everything else here.
+    fn revert(self: &Rc<Self>) {
+        let Some(doc) = self.current_document() else {
+            return;
+        };
+        if doc.path().is_none() {
+            self.banner.info(
+                "This tab has never been saved, so there is nothing on disk to go back to.",
+                Level::Warning,
+            );
+            return;
+        }
+        if !doc.is_modified() {
+            self.banner
+                .info("No unsaved changes in this tab.", Level::Info);
+            return;
+        }
+
+        let this = self.clone();
+        let id = doc.id;
+        self.banner.offer(
+            &format!("Discard unsaved changes to {}?", doc.title()),
+            Level::Warning,
+            "Discard",
+            move || {
+                // The version being thrown away is still in the history, so
+                // this is recoverable even after confirming.
+                this.reload_document(id);
+                this.banner.info(
+                    "Reverted. The discarded version is still in this document's history.",
+                    Level::Info,
+                );
+            },
+        );
+    }
+
+    /// How many open tabs hold changes that are not on disk.
+    fn unsaved_count(&self) -> usize {
+        self.docs
+            .borrow()
+            .iter()
+            .filter(|d| d.is_modified())
+            .count()
     }
 
     fn reload_document(self: &Rc<Self>, id: DocumentId) {
@@ -1210,6 +1268,7 @@ impl Window {
             }),
         );
         add("open", &["<Control>o"], Box::new(|w| w.open_dialog()));
+        add("revert", &["<Control><Shift>r"], Box::new(|w| w.revert()));
         add(
             "close-and-forget",
             &["<Control><Shift>w"],
@@ -1218,6 +1277,22 @@ impl Window {
         add("save", &["<Control>s"], Box::new(|w| w.save()));
         add("save-as", &["<Control><Shift>s"], Box::new(|w| w.save_as()));
         add("goto-line", &["<Control>g"], Box::new(|w| w.goto_line()));
+        add(
+            "duplicate-line",
+            &["<Control>d"],
+            Box::new(|w| w.duplicate_lines()),
+        );
+        add("move-line-up", &["<Alt>Up"], Box::new(|w| w.move_lines(-1)));
+        add(
+            "move-line-down",
+            &["<Alt>Down"],
+            Box::new(|w| w.move_lines(1)),
+        );
+        add(
+            "toggle-comment",
+            &["<Control>slash"],
+            Box::new(|w| w.toggle_comment()),
+        );
         add("switcher", &["<Control>p"], Box::new(|w| w.open_switcher()));
         add(
             "find-next",
@@ -1407,6 +1482,164 @@ impl Window {
                 }
             }
         });
+    }
+
+    // ---------------------------------------------------- line operations
+
+    /// The lines a line command should act on, from the current selection.
+    ///
+    /// Returns the first and last line, plus iterators spanning them whole
+    /// including the trailing newline where there is one.
+    fn selected_lines(
+        buffer: &sourceview5::Buffer,
+    ) -> Option<(i32, i32, gtk::TextIter, gtk::TextIter)> {
+        let (sel_start, sel_end) = match buffer.selection_bounds() {
+            Some(bounds) => bounds,
+            None => {
+                let iter = buffer.iter_at_mark(&buffer.get_insert());
+                (iter, iter)
+            }
+        };
+        let (first, last) =
+            crate::edit::affected_lines(sel_start.line(), sel_end.line(), sel_end.starts_line());
+
+        let start = buffer.iter_at_line(first)?;
+        // The end of the block is the start of the line after it, so the
+        // trailing newline travels with the block. On the last line there is
+        // no line after, so the end of the buffer stands in.
+        let end = match buffer.iter_at_line(last + 1) {
+            Some(iter) => iter,
+            None => buffer.end_iter(),
+        };
+        Some((first, last, start, end))
+    }
+
+    /// Copy the current line, or the selected lines, below themselves.
+    fn duplicate_lines(self: &Rc<Self>) {
+        let Some(buffer) = self.current_document().and_then(|d| d.buffer()) else {
+            return;
+        };
+        let Some((_, _, start, end)) = Self::selected_lines(&buffer) else {
+            return;
+        };
+        let block = buffer.text(&start, &end, true).to_string();
+        // A block that does not end in a newline is the last line of the file;
+        // one has to be added or the copy joins onto it.
+        let insert = if block.ends_with('\n') {
+            block.clone()
+        } else {
+            format!("\n{block}")
+        };
+
+        buffer.begin_user_action();
+        let mut at = end;
+        buffer.insert(&mut at, &insert);
+        buffer.end_user_action();
+    }
+
+    /// Move the current line, or the selected lines, up or down.
+    fn move_lines(self: &Rc<Self>, delta: i32) {
+        let Some(buffer) = self.current_document().and_then(|d| d.buffer()) else {
+            return;
+        };
+        let Some((first, last, start, end)) = Self::selected_lines(&buffer) else {
+            return;
+        };
+        let line_count = buffer.line_count();
+        let target = first + delta;
+        if target < 0 || last + delta > line_count - 1 {
+            return;
+        }
+
+        let block = buffer.text(&start, &end, true).to_string();
+        // Normalise: the block is re-inserted with a trailing newline, so a
+        // block taken from the last line does not weld itself to its new
+        // neighbour.
+        let had_newline = block.ends_with('\n');
+        let body = block.trim_end_matches('\n').to_string();
+
+        buffer.begin_user_action();
+        let (mut cut_start, mut cut_end) = (start, end);
+        buffer.delete(&mut cut_start, &mut cut_end);
+
+        // Deleting the block may have left the buffer without the newline that
+        // separated it from what followed; put the caret at the target line
+        // and re-insert with the separator the position needs.
+        let mut at = buffer
+            .iter_at_line(target.min(buffer.line_count() - 1))
+            .unwrap_or_else(|| buffer.end_iter());
+        let at_end_of_buffer = at.is_end();
+        let insert = if at_end_of_buffer && !had_newline {
+            format!("\n{body}")
+        } else {
+            format!("{body}\n")
+        };
+        buffer.insert(&mut at, &insert);
+
+        // Keep the same lines selected so the command can be repeated.
+        let moved_first = target;
+        let moved_last = target + (last - first);
+        if let (Some(sel_start), sel_end) = (
+            buffer.iter_at_line(moved_first),
+            buffer
+                .iter_at_line(moved_last + 1)
+                .unwrap_or_else(|| buffer.end_iter()),
+        ) {
+            buffer.select_range(&sel_start, &sel_end);
+        }
+        buffer.end_user_action();
+
+        if let Some(view) = self.current_view() {
+            view.scroll_to_mark(&buffer.get_insert(), 0.0, false, 0.0, 0.0);
+        }
+    }
+
+    /// Comment the selected lines, or uncomment them if they all already are.
+    fn toggle_comment(self: &Rc<Self>) {
+        let Some(doc) = self.current_document() else {
+            return;
+        };
+        let Some(buffer) = doc.buffer() else { return };
+        let Some((_, _, start, end)) = Self::selected_lines(&buffer) else {
+            return;
+        };
+
+        // The syntax engine knows the right marker when it knows the language.
+        // It usually does not here, because highlighting is off by default, so
+        // the extension decides in that case.
+        let prefix = buffer
+            .language()
+            .and_then(|lang| lang.metadata("line-comment-start"))
+            .map(|m| m.to_string())
+            .unwrap_or_else(|| crate::edit::comment_prefix_for(doc.path().as_deref()).to_owned());
+
+        let block = buffer.text(&start, &end, true).to_string();
+        let trailing_newline = block.ends_with('\n');
+        let body = block.strip_suffix('\n').unwrap_or(&block);
+        let lines: Vec<&str> = body.split('\n').collect();
+
+        let uncomment = crate::edit::should_uncomment(&lines, &prefix);
+        let column = crate::edit::comment_column(&lines);
+        let mut rewritten: Vec<String> = lines
+            .iter()
+            .map(|line| {
+                if uncomment {
+                    crate::edit::uncomment_line(line, &prefix)
+                } else {
+                    crate::edit::comment_line(line, &prefix, column)
+                }
+            })
+            .collect();
+        if trailing_newline {
+            rewritten.push(String::new());
+        }
+        let replacement = rewritten.join("\n");
+
+        buffer.begin_user_action();
+        let (mut cut_start, mut cut_end) = (start, end);
+        buffer.delete(&mut cut_start, &mut cut_end);
+        buffer.insert(&mut cut_start, &replacement);
+        buffer.end_user_action();
     }
 
     // ------------------------------------------------------- go to line
@@ -1855,6 +2088,62 @@ impl Window {
             }
         }
         names
+    }
+
+    pub fn set_text_for_test(&self, text: &str) {
+        if let Some(buffer) = self.current_document().and_then(|d| d.buffer()) {
+            buffer.set_text(text);
+        }
+    }
+
+    pub fn text_for_test(&self) -> String {
+        self.current_document()
+            .and_then(|d| d.buffer())
+            .map(|b| {
+                let (start, end) = b.bounds();
+                b.text(&start, &end, true).to_string()
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn select_lines_for_test(&self, first: i32, last: i32) {
+        let Some(buffer) = self.current_document().and_then(|d| d.buffer()) else {
+            return;
+        };
+        let Some(start) = buffer.iter_at_line(first) else {
+            return;
+        };
+        let end = buffer
+            .iter_at_line(last + 1)
+            .unwrap_or_else(|| buffer.end_iter());
+        buffer.select_range(&start, &end);
+    }
+
+    pub fn place_cursor_on_line_for_test(&self, line: i32) {
+        let Some(buffer) = self.current_document().and_then(|d| d.buffer()) else {
+            return;
+        };
+        if let Some(iter) = buffer.iter_at_line(line) {
+            buffer.place_cursor(&iter);
+        }
+    }
+
+    pub fn duplicate_lines_for_test(self: &Rc<Self>) {
+        self.duplicate_lines();
+    }
+
+    pub fn move_lines_for_test(self: &Rc<Self>, delta: i32) {
+        self.move_lines(delta);
+    }
+
+    pub fn toggle_comment_for_test(self: &Rc<Self>) {
+        self.toggle_comment();
+    }
+
+    pub fn undo_for_test(&self) {
+        if let Some(buffer) = self.current_document().and_then(|d| d.buffer()) {
+            buffer.undo();
+        }
     }
 
     pub fn tab_count(&self) -> usize {

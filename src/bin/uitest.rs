@@ -232,6 +232,74 @@ fn run(window: Rc<Window>) {
         window.refresh_tab_label_for_test(&doc);
     }
 
+    println!("line operations");
+    {
+        window.new_untitled();
+
+        window.set_text_for_test("one\ntwo\nthree\n");
+        window.place_cursor_on_line_for_test(1);
+        window.duplicate_lines_for_test();
+        check!(
+            window.text_for_test() == "one\ntwo\ntwo\nthree\n",
+            "duplicate put the copy in the wrong place: {:?}",
+            window.text_for_test()
+        );
+
+        window.set_text_for_test("one\ntwo\nthree\n");
+        window.place_cursor_on_line_for_test(2);
+        window.move_lines_for_test(-1);
+        check!(
+            window.text_for_test() == "one\nthree\ntwo\n",
+            "moving a line up went wrong: {:?}",
+            window.text_for_test()
+        );
+
+        window.set_text_for_test("a\nb\nc\n");
+        window.place_cursor_on_line_for_test(0);
+        window.move_lines_for_test(-1);
+        check!(
+            window.text_for_test() == "a\nb\nc\n",
+            "moving the first line up must do nothing: {:?}",
+            window.text_for_test()
+        );
+
+        // An untitled document has no extension, so the fallback marker is #.
+        window.set_text_for_test("    if x:\n        y()\n");
+        window.select_lines_for_test(0, 1);
+        window.toggle_comment_for_test();
+        check!(
+            window.text_for_test() == "    # if x:\n    #     y()\n",
+            "commenting did not line the markers up: {:?}",
+            window.text_for_test()
+        );
+
+        window.select_lines_for_test(0, 1);
+        window.toggle_comment_for_test();
+        check!(
+            window.text_for_test() == "    if x:\n        y()\n",
+            "uncommenting did not restore the original: {:?}",
+            window.text_for_test()
+        );
+
+        // Each operation has to be one undo step, not one per line.
+        window.set_text_for_test("a\nb\nc\n");
+        window.select_lines_for_test(0, 2);
+        window.toggle_comment_for_test();
+        let commented = window.text_for_test();
+        check!(
+            commented.starts_with("# a"),
+            "expected comments: {commented:?}"
+        );
+        window.undo_for_test();
+        check!(
+            window.text_for_test() == "a\nb\nc\n",
+            "one undo must put every line back: {:?}",
+            window.text_for_test()
+        );
+
+        window.close_current_tab();
+    }
+
     println!("close and forget");
     window.open_path(files[1].clone());
     window.close_and_forget();
