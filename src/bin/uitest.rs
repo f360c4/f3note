@@ -187,6 +187,43 @@ fn run(window: Rc<Window>) {
         "closing the last tab must leave an empty one, not nothing"
     );
 
+    println!("a recovered document shows its marker from the moment it opens");
+    {
+        // Mimic what session restore produces: a document whose buffer comes
+        // back already modified, which is the case whose tab silently stayed
+        // clean forever.
+        let doc = window.current_document().expect("a document");
+        doc.set_modified(true);
+        if let Some(buffer) = doc.buffer() {
+            buffer.set_modified(true);
+        }
+        window.refresh_tab_label_for_test(&doc);
+
+        let index = window.tab_count() - 1;
+        let (text, _) = window.tab_label_for_test(index).unwrap();
+        check!(
+            text.starts_with('*'),
+            "a document with unsaved work must be marked, got {text:?}"
+        );
+
+        // And editing it further must not lose the marker either.
+        if let Some(buffer) = doc.buffer() {
+            let mut end = buffer.end_iter();
+            buffer.insert(&mut end, "more");
+        }
+        let (text, _) = window.tab_label_for_test(index).unwrap();
+        check!(
+            text.starts_with('*'),
+            "the marker must survive further editing, got {text:?}"
+        );
+
+        doc.set_modified(false);
+        if let Some(buffer) = doc.buffer() {
+            buffer.set_modified(false);
+        }
+        window.refresh_tab_label_for_test(&doc);
+    }
+
     println!("close and forget");
     window.open_path(files[1].clone());
     window.close_and_forget();

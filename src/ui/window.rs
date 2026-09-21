@@ -681,6 +681,16 @@ impl Window {
         self.connect_buffer(doc, &buffer);
         self.connect_view(&view);
         self.announce_capabilities(doc);
+
+        // The label has to be refreshed explicitly here, and the reason is
+        // worth writing down. A document restored from its mirror arrives
+        // already modified, and that state is set before the signal above is
+        // connected — so nothing updates the tab. Worse, because the buffer is
+        // *already* modified, editing it does not change `is_modified()` and
+        // `modified-changed` never fires at all. The tab would then show a
+        // clean name for the rest of its life, on precisely the document that
+        // most needs the marker: the one holding unsaved work.
+        self.refresh_tab_label(doc);
     }
 
     /// Apply everything that depends on whether the document is in reduced mode.
