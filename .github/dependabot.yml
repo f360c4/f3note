@@ -1,0 +1,17 @@
+# Dependency updates arrive as pull requests rather than silently.
+#
+# Actions are included on purpose: they are pinned to commit hashes, which is
+# the safe way to use them, but a pinned hash never gets a security fix unless
+# something tells you to move it.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
