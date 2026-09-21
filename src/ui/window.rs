@@ -42,6 +42,9 @@ use crate::ui::statusbar::StatusBar;
 const ZOOM_MIN: i32 = -6;
 const ZOOM_MAX: i32 = 24;
 
+/// One entry in a status-bar menu: what it says, and what it does.
+type MenuOption = (String, Box<dyn Fn(&Rc<Window>)>);
+
 pub struct Window {
     pub window: gtk::ApplicationWindow,
     notebook: gtk::Notebook,
@@ -143,6 +146,7 @@ impl Window {
         this.clone().connect_signals();
         this.clone().install_actions(app);
         this.clone().follow_theme();
+        this.connect_status_actions();
         this.clone().start_autosave();
         this.clone().guard_close();
         this
@@ -529,6 +533,7 @@ impl Window {
             return;
         }
 
+        crate::recent::Recent::new(&self.state_root).record(&canonical);
         let doc = Rc::new(Document::deferred(self.allocate_id(), canonical, 0));
         self.add_document(doc, true);
     }
@@ -1796,6 +1801,131 @@ impl Window {
         }
     }
 
+    // ------------------------------------------------ status bar actions
+
+    /// One entry in a status-bar menu: what it says, and what it does.
+    fn status_menu(self: &Rc<Self>, anchor: &gtk::Button, title: &str, options: Vec<MenuOption>) {
+        let list = gtk::ListBox::builder()
+            .selection_mode(gtk::SelectionMode::None)
+            .build();
+
+        let popover = gtk::Popover::builder().autohide(true).build();
+
+        for (label, action) in options {
+            let row = gtk::ListBoxRow::builder()
+                .child(&gtk::Label::builder().label(&label).xalign(0.0).build())
+                .build();
+            list.append(&row);
+            let this = self.clone();
+            let popover_ref = popover.clone();
+            let gesture = gtk::GestureClick::new();
+            gesture.connect_released(move |_, _, _, _| {
+                popover_ref.popdown();
+                action(&this);
+            });
+            row.add_controller(gesture);
+        }
+
+        let heading = gtk::Label::builder().label(title).xalign(0.0).build();
+        heading.add_css_class("path");
+        let layout = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(4)
+            .build();
+        layout.append(&heading);
+        layout.append(&list);
+        popover.set_child(Some(&layout));
+
+        // Anchored to the button rather than the notebook: this menu is about
+        // that field, and it should appear beside it.
+        popover.set_parent(anchor);
+        popover.set_position(gtk::PositionType::Top);
+        popover.add_css_class("f3note-switcher");
+        let this = self.clone();
+        popover.connect_closed(move |p| this.dismiss_popover(p));
+        popover.popup();
+    }
+
+    fn connect_status_actions(self: &Rc<Self>) {
+        let this = self.clone();
+        let button = self.status.line_ending.clone();
+        self.status.line_ending.connect_clicked(move |anchor| {
+            let _ = &button;
+            let options: Vec<MenuOption> = vec![
+                (
+                    "LF — Unix, macOS".to_owned(),
+                    Box::new(|w: &Rc<Window>| w.set_line_ending(crate::text::LineEnding::Lf)),
+                ),
+                (
+                    "CRLF — Windows".to_owned(),
+                    Box::new(|w: &Rc<Window>| w.set_line_ending(crate::text::LineEnding::CrLf)),
+                ),
+                (
+                    "CR — classic Mac".to_owned(),
+                    Box::new(|w: &Rc<Window>| w.set_line_ending(crate::text::LineEnding::Cr)),
+                ),
+            ];
+            this.status_menu(anchor, "Line endings, on save", options);
+        });
+
+        let this = self.clone();
+        self.status.encoding.connect_clicked(move |anchor| {
+            let options: Vec<MenuOption> = vec![
+                (
+                    "UTF-8".to_owned(),
+                    Box::new(|w: &Rc<Window>| w.set_encoding("UTF-8", false)),
+                ),
+                (
+                    "UTF-8 with BOM".to_owned(),
+                    Box::new(|w: &Rc<Window>| w.set_encoding("UTF-8", true)),
+                ),
+                (
+                    "Windows-1252".to_owned(),
+                    Box::new(|w: &Rc<Window>| w.set_encoding("windows-1252", false)),
+                ),
+                (
+                    "ISO-8859-1".to_owned(),
+                    Box::new(|w: &Rc<Window>| w.set_encoding("ISO-8859-1", false)),
+                ),
+                (
+                    "UTF-16 LE".to_owned(),
+                    Box::new(|w: &Rc<Window>| w.set_encoding("UTF-16LE", true)),
+                ),
+            ];
+            this.status_menu(anchor, "Encoding, on save", options);
+        });
+    }
+
+    fn set_line_ending(self: &Rc<Self>, ending: crate::text::LineEnding) {
+        let Some(doc) = self.current_document() else {
+            return;
+        };
+        doc.set_line_ending(ending);
+        self.status.set_document(&doc);
+        // The file on disk still has the old endings; the change takes effect
+        // when saved, so the tab is marked to say so.
+        if let Some(buffer) = doc.buffer() {
+            buffer.set_modified(true);
+        }
+        self.banner.info(
+            &format!("Will be saved with {} line endings.", ending.label()),
+            Level::Info,
+        );
+    }
+
+    fn set_encoding(self: &Rc<Self>, name: &str, bom: bool) {
+        let Some(doc) = self.current_document() else {
+            return;
+        };
+        doc.set_encoding(name, bom);
+        self.status.set_document(&doc);
+        if let Some(buffer) = doc.buffer() {
+            buffer.set_modified(true);
+        }
+        self.banner
+            .info(&format!("Will be saved as {name}."), Level::Info);
+    }
+
     // ---------------------------------------------------------- history
 
     /// Go back to an earlier version of this document.
@@ -2010,21 +2140,38 @@ impl Window {
             .build();
         self.anchor_popover(&popover);
 
-        // Candidates start in most-recently-used order, so an empty query
-        // already shows the tab you most likely want.
-        let candidates: Vec<(DocumentId, String, String)> = {
+        // Open tabs first, in most-recently-used order, so an empty query
+        // already shows the tab you most likely want. Recently closed files
+        // follow, so the same keystroke reopens something you closed — there
+        // is no reason to make that a second shortcut to remember.
+        //
+        // An entry with an id is a tab to switch to; one without is a file to
+        // open.
+        let candidates: Vec<(Option<DocumentId>, String, String)> = {
             let mru = self.mru.borrow();
             let docs = self.docs.borrow();
-            let mut ordered: Vec<(DocumentId, String, String)> = mru
+            let mut ordered: Vec<(Option<DocumentId>, String, String)> = mru
                 .as_slice()
                 .iter()
                 .filter_map(|id| docs.iter().find(|d| d.id == *id))
-                .map(|d| (d.id, d.title(), d.describe()))
+                .map(|d| (Some(d.id), d.title(), d.describe()))
                 .collect();
             for d in docs.iter() {
-                if !ordered.iter().any(|(id, _, _)| *id == d.id) {
-                    ordered.push((d.id, d.title(), d.describe()));
+                if !ordered.iter().any(|(id, _, _)| *id == Some(d.id)) {
+                    ordered.push((Some(d.id), d.title(), d.describe()));
                 }
+            }
+
+            let open_paths: Vec<_> = docs.iter().filter_map(|d| d.path()).collect();
+            for path in crate::recent::Recent::new(&self.state_root).existing() {
+                if open_paths.contains(&path) {
+                    continue;
+                }
+                let name = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| path.display().to_string());
+                ordered.push((None, name, path.display().to_string()));
             }
             ordered
         };
@@ -2040,7 +2187,11 @@ impl Window {
                 for (item, _) in ranked.iter().take(200) {
                     let name = gtk::Label::builder().label(&item.1).xalign(0.0).build();
                     let path = gtk::Label::builder()
-                        .label(&item.2)
+                        .label(if item.0.is_some() {
+                            item.2.clone()
+                        } else {
+                            format!("{}  ·  not open", item.2)
+                        })
                         .xalign(0.0)
                         .ellipsize(gtk::pango::EllipsizeMode::Start)
                         .build();
@@ -2051,9 +2202,12 @@ impl Window {
                     row_box.append(&name);
                     row_box.append(&path);
                     let row = gtk::ListBoxRow::builder().child(&row_box).build();
-                    // The document id travels with the row so activation does
-                    // not depend on the list's current ordering.
-                    unsafe { row.set_data("f3note-doc-id", item.0) };
+                    // What to do travels with the row, so activation does not
+                    // depend on the list's current ordering.
+                    match item.0 {
+                        Some(id) => unsafe { row.set_data("f3note-doc-id", id) },
+                        None => unsafe { row.set_data("f3note-path", item.2.clone()) },
+                    }
                     list.append(&row);
                 }
                 if let Some(first) = list.row_at_index(0) {
@@ -2079,14 +2233,18 @@ impl Window {
             let this = self.clone();
             let popover = popover.clone();
             move |row: &gtk::ListBoxRow| {
-                let id = unsafe { row.data::<DocumentId>("f3note-doc-id") };
-                if let Some(id) = id {
+                popover.popdown();
+                if let Some(id) = unsafe { row.data::<DocumentId>("f3note-doc-id") } {
                     let id = unsafe { *id.as_ref() };
                     if let Some(index) = this.index_of(id) {
                         this.select_tab(index);
                     }
+                    return;
                 }
-                popover.popdown();
+                if let Some(path) = unsafe { row.data::<String>("f3note-path") } {
+                    let path = unsafe { path.as_ref().clone() };
+                    this.open_path(std::path::PathBuf::from(path));
+                }
             }
         };
 

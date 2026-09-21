@@ -274,6 +274,21 @@ impl Document {
     pub fn set_line_ending(&self, ending: LineEnding) {
         self.meta.borrow_mut().line_ending = ending;
     }
+
+    /// Change how this document will be written.
+    ///
+    /// Only affects saving. The bytes already read are decoded; re-encoding
+    /// them under a different charset is what the user asked for, and the
+    /// status bar shows the result so a bad choice is visible before it is
+    /// saved.
+    pub fn set_encoding(&self, name: &str, bom: bool) {
+        let mut m = self.meta.borrow_mut();
+        m.encoding = name.to_owned();
+        m.had_bom = bom;
+        // Whatever could not be decoded is already lost or already fine;
+        // choosing an encoding deliberately clears the refusal to save.
+        m.lossy = false;
+    }
 }
 
 #[cfg(test)]

@@ -154,6 +154,18 @@ window.f3note .f3note-statusbar {{
   font-size: {small}pt;
 }}
 
+window.f3note .f3note-statusbar button.f3note-status-action {{
+  background: none;
+  border: none;
+  box-shadow: none;
+  outline: none;
+  color: {muted};
+  min-height: 0;
+  min-width: 0;
+  padding: 0 2px;
+}}
+window.f3note .f3note-statusbar button.f3note-status-action:hover {{ color: {accent}; }}
+
 window.f3note .f3note-findbar {{
   background-color: {bar_bg};
   border-top: 1px solid {hairline};
