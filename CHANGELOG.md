@@ -71,3 +71,5 @@ First release.
 - Needs GTK 4.12, GtkSourceView 5.10 and Rust 1.92. Ubuntu 22.04, Debian 12
   and RHEL 9 are too old and are not supported; a Flatpak would cover them and
   does not exist yet.
+- Tested on Arch and Hyprland only. Other distributions ship recent enough GTK
+  and ought to work, but nobody has built it there.

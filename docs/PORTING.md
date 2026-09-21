@@ -1,5 +1,11 @@
 # Portability targets
 
+**What has actually been tested: Arch, on one machine.** Everything below is a
+statement about what versions each distribution ships, gathered from their
+package indexes — not a report of anyone having built f3note there. The
+distinction matters: "ships GTK 4.18" means it ought to work, not that it
+does.
+
 f3note commits to a **GTK 4.12 / GtkSourceView 5.10 API ceiling**. Those are the
 newest versions available on the oldest distributions we promise native packages
 for. Enabling a newer `v4_x`/`v5_x` feature in `Cargo.toml` silently drops the

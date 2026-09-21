@@ -7,8 +7,11 @@ Notepad++'s tabs and crash recovery, in a binary that opens in about 150ms.
 
 ![f3note](docs/images/editor.png)
 
-Built for people running tiling compositors — Hyprland, Sway, river — but it
-depends on nothing specific to them and runs on any desktop.
+Written on Hyprland, which is the only compositor it has been tested on.
+Nothing in it is Hyprland-specific — it is a plain GTK4 application and talks
+to no compositor API — so it should run anywhere Wayland does. "Should" is
+doing real work in that sentence: if you run it on Sway, river, GNOME or KDE,
+I would like to hear how it went.
 
 | | |
 |---|---|
@@ -20,26 +23,40 @@ depends on nothing specific to them and runs on any desktop.
 ## What it does
 
 **It does not lose your work.** Every buffer is mirrored to disk continuously,
-including unnamed scratch tabs. Pull the power cord and everything comes back
-exactly as it was. There is no "do you want to save?" dialog, because there is
-nothing to ask about — that dialog exists for editors that cannot make this
-promise.
+including unnamed scratch tabs, so the most an abrupt shutdown can cost you is
+a few seconds of typing. There is no "do you want to save?" dialog, because
+there is nothing to ask about — that dialog exists for editors that cannot
+make this promise.
+
+Tested by killing the process with `SIGKILL` mid-edit and starting it again:
+the unsaved text comes back and the file on disk is untouched. Run
+`./scripts/crashtest.sh` and watch it happen. A real power cut also depends on
+your filesystem honouring `fsync`; f3note calls it on both the file and its
+directory, which is the part that is usually skipped.
 
 **Tabs stay out of the way.** `Ctrl+T`, `Ctrl+W`, `Alt+1`..`Alt+9`, `Ctrl+Tab`
-in most-recently-used order, and `Ctrl+P` to jump to a tab by typing part of
-its name. Past a dozen tabs nobody reads a tab bar anyway.
+in most-recently-used order, and `Ctrl+P` to reach a tab — or reopen a recent
+file — by typing part of its name. Past a dozen tabs nobody reads a tab bar
+anyway.
 
-**One window.** `f3note other.txt` from a terminal opens a tab in the window you
-already have, rather than starting a second process. It works without a session
-bus too, which is where most single-instance implementations quietly fail.
+**One window.** `f3note other.txt` from a terminal opens a tab in the window
+you already have, rather than starting a second process — in about 80ms.
+
+It works without a session bus too, which is where most single-instance
+implementations quietly fail: `GApplication` does not report an error when
+there is no bus, it simply lets every process become primary. Verified by
+running two instances with the bus removed: one process, one window, the file
+handed over.
 
 **It follows your theme.** Colours come from whatever palette your system
 already defines, and follow it live — switch the desktop theme and the editor
 recolours without restarting or losing a tab.
 
-**You can go back.** Every version is kept as you work, so an edit you regret
-an hour ago and already saved is still recoverable — which is exactly the case
-a "do you want to save?" prompt cannot help with.
+**You can go back.** Versions are kept as you work — up to 200 per document,
+bounded by total size — so an edit you regret an hour ago and already saved is
+still recoverable. That is exactly the case a "do you want to save?" prompt
+cannot help with. Documents over 8 MB keep a mirror but no history, because
+two hundred copies of a large file is a disk leak rather than a feature.
 
 **It tells you the truth about its limits.** See below.
 
@@ -81,15 +98,20 @@ one is not a preference — the gtk-rs crates require it — and it is newer tha
 several distributions ship, so `rustup` is often easier than your package
 manager's Rust.
 
-| Distribution | Dependencies | Works? |
-|---|---|---|
-| Arch, Manjaro, Omarchy | `pacman -S gtk4 gtksourceview5 rustup` | yes |
-| Fedora 39+ | `dnf install gtk4-devel gtksourceview5-devel` | yes |
-| Debian 13+ | `apt install libgtk-4-dev libgtksourceview-5-dev` | yes, with rustup |
-| Ubuntu 24.04+ | `apt install libgtk-4-dev libgtksourceview-5-dev` | yes, with rustup |
-| Alpine 3.20+ | `apk add gtk4.0-dev gtksourceview5-dev` | yes, with rustup |
-| openSUSE Leap 16+ | `zypper in gtk4-devel gtksourceview5-devel` | yes |
-| **Ubuntu 22.04, Debian 12, RHEL 9** | — | **no: GTK too old** |
+`scripts/install.sh` checks all three and tells you what is missing for the
+distribution it finds, which is more reliable than a table here: it reads your
+actual system rather than my notes about it.
+
+**Only Arch has been tested.** f3note is written and used on one machine —
+Arch, Hyprland. Everything above is a statement about what GTK and Rust
+require, not a claim that anyone has built this on Fedora, Debian, Ubuntu,
+Alpine or openSUSE. They ship recent enough GTK, so it ought to work, and I
+would be glad to hear either way.
+
+What I can say for certain, because the versions are the constraint rather
+than my testing: **Ubuntu 22.04 (GTK 4.6), Debian 12 (GTK 4.8) and RHEL 9 (no
+GtkSourceView 5 at all) cannot run it.** Not from source, and not from the
+AppImage. See [docs/PORTING.md](docs/PORTING.md).
 
 Not in any distribution's repositories yet. An AUR `PKGBUILD` is in
 `packaging/` and is ready — see [docs/AUR.md](docs/AUR.md) — but has not been
@@ -172,6 +194,15 @@ resolver, measures startup against its 200ms budget, and measures how long the
 main loop stalls on a line at the configured limit. The window test runs under
 `G_DEBUG=fatal-criticals`, so a GTK critical fails the build rather than
 scrolling past.
+
+## Status
+
+1.0.1, released. See [CHANGELOG.md](CHANGELOG.md).
+
+Written and used by one person on one machine — Arch, Hyprland, an NVIDIA
+card. The automated tests cover the logic, the window and crash recovery, and
+run on every push; everything visual was checked by hand on that one setup.
+Bug reports from different hardware are genuinely useful.
 
 ## License
 
