@@ -86,6 +86,39 @@ fn run(window: Rc<Window>) {
 
     // This is the exact step that panicked: closing a tab while others remain
     // makes the editor pick the most recently used one to move to.
+    println!("tabs are actually readable");
+    for index in 0..window.tab_count() {
+        let (text, minimum) = window
+            .tab_label_for_test(index)
+            .unwrap_or_else(|| panic!("tab {index} has no label"));
+        check!(!text.is_empty(), "tab {index} has an empty label");
+        check!(
+            text.contains(".txt"),
+            "tab {index} shows {text:?} rather than a file name"
+        );
+        // Every tab once rendered as a bare ellipsis because the label was
+        // free to shrink to nothing. A readable name needs real width.
+        check!(
+            minimum >= 40,
+            "tab {index} asks for only {minimum}px, too narrow to read {text:?}"
+        );
+    }
+    println!("  first tab: {:?}", window.tab_label_for_test(0).unwrap());
+
+    println!("the modified marker shows up in the label");
+    if let Some(doc) = window.current_document() {
+        doc.set_modified(true);
+        window.refresh_tab_label_for_test(&doc);
+        let index = window.tab_count() - 1;
+        let (text, _) = window.tab_label_for_test(index).unwrap();
+        check!(
+            text.starts_with('*'),
+            "a modified tab should be marked, got {text:?}"
+        );
+        doc.set_modified(false);
+        window.refresh_tab_label_for_test(&doc);
+    }
+
     println!("closing the current tab");
     window.close_current_tab();
     check!(window.tab_count() == 5, "tab was not removed");

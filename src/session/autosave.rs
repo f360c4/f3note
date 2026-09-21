@@ -35,6 +35,7 @@ pub struct Job {
     /// written, because recovery matters regardless of size.
     pub keep_history: bool,
     pub history_limit: usize,
+    pub history_max_total_bytes: u64,
 }
 
 /// What came back.
@@ -78,8 +79,11 @@ impl Worker {
                                 // is what recovery reads, and a failure to keep
                                 // an extra version must never look like a
                                 // failure to protect the current text.
-                                if let Err(e) = store.push_history(&job.contents, job.history_limit)
-                                {
+                                if let Err(e) = store.push_history(
+                                    &job.contents,
+                                    job.history_limit,
+                                    job.history_max_total_bytes,
+                                ) {
                                     eprintln!("f3note: history for {}: {e}", job.key);
                                 }
                             }
@@ -281,6 +285,7 @@ mod tests {
             contents: b"hello from the worker".to_vec(),
             keep_history: true,
             history_limit: 5,
+            history_max_total_bytes: u64::MAX,
         });
 
         // The worker is on another thread, so wait for it rather than assuming.
@@ -310,6 +315,7 @@ mod tests {
             contents: b"same".to_vec(),
             keep_history: true,
             history_limit: 5,
+            history_max_total_bytes: u64::MAX,
         };
 
         worker.submit(job());

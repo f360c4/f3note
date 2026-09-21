@@ -214,6 +214,7 @@ impl Window {
             contents,
             keep_history,
             history_limit: limits.history_versions,
+            history_max_total_bytes: limits.history_max_total_bytes,
         });
     }
 
@@ -234,7 +235,11 @@ impl Window {
             let store = DocStore::new(&self.state_root, &doc.store_key());
             match store.write_mirror(&contents) {
                 Ok(Some(_)) if contents.len() as u64 <= limits.history_max_bytes => {
-                    let _ = store.push_history(&contents, limits.history_versions);
+                    let _ = store.push_history(
+                        &contents,
+                        limits.history_versions,
+                        limits.history_max_total_bytes,
+                    );
                 }
                 Ok(_) => {}
                 Err(e) => eprintln!("f3note: could not mirror {} on exit: {e}", doc.describe()),
@@ -397,10 +402,18 @@ impl Window {
     }
 
     fn build_tab_label(self: &Rc<Self>, doc: &Rc<Document>) -> gtk::Box {
+        // width_chars is the minimum, max_width_chars the natural size. With
+        // ellipsizing on and no minimum, GtkLabel is free to shrink to a bare
+        // "…" — which is exactly what every tab showed: no name, no modified
+        // marker, nothing to tell one tab from another. Reserving a minimum
+        // means a tab is always readable, and the notebook scrolls instead of
+        // squeezing when there are many.
         let label = gtk::Label::builder()
             .label(doc.tab_label())
             .ellipsize(gtk::pango::EllipsizeMode::Middle)
-            .max_width_chars(22)
+            .width_chars(12)
+            .max_width_chars(24)
+            .single_line_mode(true)
             .build();
 
         let close = gtk::Button::builder()
@@ -1635,7 +1648,18 @@ impl Window {
             if self.findbar.query.text().is_empty() {
                 return;
             }
-            match Self::replace_all(&context, replacement.as_str()) {
+            // One undo step for the whole operation. Without this, undoing a
+            // replace-all means pressing Ctrl+Z once per occurrence, which on
+            // a file with fifty matches is not undo in any useful sense.
+            let buffer = self.current_document().and_then(|d| d.buffer());
+            if let Some(b) = &buffer {
+                b.begin_user_action();
+            }
+            let outcome = Self::replace_all(&context, replacement.as_str());
+            if let Some(b) = &buffer {
+                b.end_user_action();
+            }
+            match outcome {
                 Ok(0) => self.banner.info("Nothing to replace", Level::Info),
                 Ok(1) => self.banner.info("1 occurrence replaced", Level::Info),
                 Ok(n) => self
@@ -1661,8 +1685,25 @@ impl Window {
     // can exercise the real widget tree — the layer where the panic on closing
     // a tab lived, and which the unit tests could not reach.
 
+    /// The text on a tab, and the minimum width its label asks for.
+    ///
+    /// Both matter. The text stayed correct throughout the bug that made every
+    /// tab render as a bare "…" — what was wrong was the width the label was
+    /// willing to shrink to, so a test that only checked the string would have
+    /// passed while no tab was readable.
+    pub fn tab_label_for_test(&self, index: usize) -> Option<(String, i32)> {
+        let page = self.notebook.nth_page(Some(index as u32))?;
+        let label = self.tab_label_widget(&page)?;
+        let (minimum, _, _, _) = label.measure(gtk::Orientation::Horizontal, -1);
+        Some((label.text().to_string(), minimum))
+    }
+
     pub fn tab_count(&self) -> usize {
         self.docs.borrow().len()
+    }
+
+    pub fn refresh_tab_label_for_test(&self, doc: &Rc<Document>) {
+        self.refresh_tab_label(doc);
     }
 
     pub fn close_current_tab(self: &Rc<Self>) {
@@ -1762,6 +1803,17 @@ impl Window {
             return;
         }
         self.findbar.close();
+
+        // Clearing the search term also clears the highlighting. Leaving every
+        // match lit up after the bar is gone looks like the editor is still
+        // searching, and there is then no visible way to turn it off. The
+        // text itself stays in the entry, so reopening with Ctrl+F still
+        // offers the previous search.
+        let context = self.search.borrow().clone();
+        if let Some(context) = context {
+            context.settings().set_search_text(None);
+        }
+
         if let Some(view) = self.current_view() {
             view.grab_focus();
         }

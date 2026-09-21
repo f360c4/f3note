@@ -78,7 +78,19 @@ pub struct Editor {
     /// kept. Version history on a large file costs more disk than it is worth.
     pub history_max_bytes: u64,
     /// Versions retained per document before the oldest are collected.
+    ///
+    /// The old default of 20 was far too small to be useful. Autosave writes
+    /// a snapshot every few seconds while someone works, so twenty versions
+    /// covered barely two minutes — worthless for recovering an accidental
+    /// replace-all noticed half an hour later, which is precisely what
+    /// history is for.
     pub history_versions: usize,
+    /// Ceiling on the total bytes of history kept per document.
+    ///
+    /// Paired with the count because the count alone cannot bound disk use:
+    /// two hundred versions of a small file is nothing, and two hundred of a
+    /// large one is not. Whichever limit is reached first wins.
+    pub history_max_total_bytes: u64,
 }
 
 impl Default for Editor {
@@ -89,7 +101,8 @@ impl Default for Editor {
             autosave_idle_seconds: 2,
             autosave_max_seconds: 7,
             history_max_bytes: 8 * 1024 * 1024,
-            history_versions: 20,
+            history_versions: 200,
+            history_max_total_bytes: 64 * 1024 * 1024,
         }
     }
 }

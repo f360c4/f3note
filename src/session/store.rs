@@ -147,7 +147,12 @@ impl DocStore {
     ///
     /// History failures are never fatal: the mirror is what recovery needs, and
     /// a full disk should not stop the editor from protecting the latest text.
-    pub fn push_history(&self, contents: &[u8], keep: usize) -> io::Result<bool> {
+    pub fn push_history(
+        &self,
+        contents: &[u8],
+        keep: usize,
+        max_total_bytes: u64,
+    ) -> io::Result<bool> {
         let hash = hash_of(contents);
         let history = self.history_dir();
 
@@ -170,7 +175,7 @@ impl DocStore {
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
         atomic::write(&self.meta_path(), &encoded)?;
 
-        self.gc(keep)?;
+        self.gc(keep, max_total_bytes)?;
         Ok(true)
     }
 
@@ -202,16 +207,37 @@ impl DocStore {
         zstd::decode_all(compressed.as_slice())
     }
 
-    /// Drop the oldest snapshots beyond `keep`.
+    /// Drop the oldest snapshots beyond either limit.
+    ///
+    /// Two limits, because neither alone bounds anything useful. A count alone
+    /// cannot bound disk use, since two hundred versions of a large file is
+    /// not the same as two hundred of a small one. A size alone would throw
+    /// away recent history on a big file while keeping thousands of versions
+    /// of a tiny one. Whichever is reached first wins, and the newest are
+    /// always what survive.
     ///
     /// Deleting is idempotent, so an interrupted collection simply resumes on
     /// the next pass: there is no state to repair.
-    pub fn gc(&self, keep: usize) -> io::Result<()> {
+    pub fn gc(&self, keep: usize, max_total_bytes: u64) -> io::Result<()> {
         let entries = self.history_entries()?;
-        if entries.len() <= keep {
+
+        let mut drop_count = entries.len().saturating_sub(keep);
+
+        // Walk from newest to oldest, accumulating size, and mark everything
+        // past the ceiling for removal.
+        let mut running = 0u64;
+        for (index, entry) in entries.iter().enumerate().rev() {
+            running += std::fs::metadata(&entry.path).map(|m| m.len()).unwrap_or(0);
+            if running > max_total_bytes {
+                drop_count = drop_count.max(index + 1);
+                break;
+            }
+        }
+
+        if drop_count == 0 {
             return Ok(());
         }
-        for entry in &entries[..entries.len() - keep] {
+        for entry in &entries[..drop_count.min(entries.len())] {
             let _ = std::fs::remove_file(&entry.path);
         }
         let _ = atomic::sync_dir(&self.history_dir());
@@ -312,7 +338,7 @@ mod tests {
         let root = scratch("history");
         let s = DocStore::new(&root, "k");
         let text = "repetitive text ".repeat(500);
-        s.push_history(text.as_bytes(), 20).unwrap();
+        s.push_history(text.as_bytes(), 20, u64::MAX).unwrap();
         let entries = s.history_entries().unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(s.read_history(&entries[0]).unwrap(), text.as_bytes());
@@ -326,9 +352,9 @@ mod tests {
     fn identical_content_does_not_add_a_snapshot() {
         let root = scratch("dedup");
         let s = DocStore::new(&root, "k");
-        assert!(s.push_history(b"one", 20).unwrap());
-        assert!(!s.push_history(b"one", 20).unwrap());
-        assert!(s.push_history(b"two", 20).unwrap());
+        assert!(s.push_history(b"one", 20, u64::MAX).unwrap());
+        assert!(!s.push_history(b"one", 20, u64::MAX).unwrap());
+        assert!(s.push_history(b"two", 20, u64::MAX).unwrap());
         assert_eq!(s.history_entries().unwrap().len(), 2);
         std::fs::remove_dir_all(root).ok();
     }
@@ -338,7 +364,7 @@ mod tests {
         let root = scratch("cap");
         let s = DocStore::new(&root, "k");
         for i in 0..10 {
-            s.push_history(format!("version {i}").as_bytes(), 3)
+            s.push_history(format!("version {i}").as_bytes(), 3, u64::MAX)
                 .unwrap();
         }
         let entries = s.history_entries().unwrap();
@@ -353,11 +379,57 @@ mod tests {
     }
 
     #[test]
+    fn history_is_also_capped_by_total_size() {
+        let root = scratch("sizecap");
+        let s = DocStore::new(&root, "k");
+
+        // Content that does not compress away, so the stored size is close to
+        // the content size. A run of identical characters would shrink to
+        // almost nothing under zstd and never reach any ceiling worth testing.
+        let mut seed = 1u64;
+        let mut noisy = |n: usize| -> Vec<u8> {
+            (0..n)
+                .map(|_| {
+                    seed = seed
+                        .wrapping_mul(6364136223846793005)
+                        .wrapping_add(1442695040888963407);
+                    (seed >> 33) as u8
+                })
+                .collect()
+        };
+
+        // Each snapshot is distinct, so none are deduplicated away.
+        for _ in 0..20 {
+            s.push_history(&noisy(2000), 1000, 4096).unwrap();
+        }
+        let entries = s.history_entries().unwrap();
+        assert!(
+            entries.len() < 20,
+            "the size ceiling should have collected something, kept {}",
+            entries.len()
+        );
+        assert!(
+            s.size_on_disk() < 64 * 1024,
+            "kept {} bytes",
+            s.size_on_disk()
+        );
+        // The survivors must be a contiguous run ending at the newest: the
+        // collector drops from the old end, never out of the middle.
+        let sequences: Vec<u64> = entries.iter().map(|e| e.sequence).collect();
+        assert_eq!(*sequences.last().unwrap(), 20, "the newest must survive");
+        assert!(
+            sequences.windows(2).all(|w| w[1] == w[0] + 1),
+            "gaps in the kept history: {sequences:?}"
+        );
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
     fn forgetting_removes_everything() {
         let root = scratch("forget");
         let s = DocStore::new(&root, "k");
         s.write_mirror(b"secret").unwrap();
-        s.push_history(b"secret", 20).unwrap();
+        s.push_history(b"secret", 20, u64::MAX).unwrap();
         assert!(s.size_on_disk() > 0);
         s.forget().unwrap();
         assert!(!s.dir().exists());
