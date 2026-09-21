@@ -10,6 +10,13 @@ Notepad++'s tabs and crash recovery, in a binary that opens in about 150ms.
 Built for people running tiling compositors — Hyprland, Sway, river — but it
 depends on nothing specific to them and runs on any desktop.
 
+| | |
+|---|---|
+| ![Search](docs/images/search.png) | ![Sessions](docs/images/sessions.png) |
+| Search the open tabs and the folder you are in | Named sets of tabs, switched without losing unsaved work |
+| ![Switcher](docs/images/switcher.png) | ![Long lines](docs/images/longlines.png) |
+| Jump to a tab, or reopen a recent file, by typing | Honest about the one thing it is bad at |
+
 ## What it does
 
 **It does not lose your work.** Every buffer is mirrored to disk continuously,
@@ -132,9 +139,7 @@ finding the cursor's column means shaping every character in it. Minified CSS
 and single-line JSON make the cursor stutter, and no setting removes that.
 
 f3note detects such files, turns off what it can, and says so rather than
-pretending the problem is handled:
-
-![Long lines](docs/images/longlines.png)
+pretending the problem is handled.
 
 **No split view, no multiple cursors, no plugins, no LSP.** Deliberately. If
 you want those, you want a different editor, and there are good ones.

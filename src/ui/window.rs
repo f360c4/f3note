@@ -1772,8 +1772,20 @@ impl Window {
         popover.set_position(gtk::PositionType::Bottom);
         popover.set_halign(gtk::Align::Center);
         popover.set_has_arrow(false);
-        let width = self.notebook.width().max(1);
-        popover.set_pointing_to(Some(&gdk::Rectangle::new(width / 2, 0, 1, 1)));
+
+        // Point at the notebook's full width so GTK centres the popover over
+        // it. Pointing at a single pixel in the middle looked equivalent and
+        // was not: the width is read before the widget has been allocated in
+        // some paths, and a width of zero put the popover against the left
+        // edge. Screenshots of the same command taken moments apart landed in
+        // different places, which is how this was noticed.
+        let width = self.notebook.width();
+        let width = if width > 0 {
+            width
+        } else {
+            self.window.width().max(1)
+        };
+        popover.set_pointing_to(Some(&gdk::Rectangle::new(0, 0, width, 1)));
         popover.add_css_class("f3note-switcher");
         Self::escape_closes(popover);
     }
@@ -3091,6 +3103,27 @@ impl Window {
 
     pub fn open_paths_for_test(&self) -> Vec<std::path::PathBuf> {
         self.docs.borrow().iter().filter_map(|d| d.path()).collect()
+    }
+
+    /// Type into the search panel's entry, for screenshots and tests.
+    pub fn set_search_query_for_test(&self, query: &str) {
+        fn find_entry(widget: &gtk::Widget) -> Option<gtk::SearchEntry> {
+            if let Ok(entry) = widget.clone().downcast::<gtk::SearchEntry>() {
+                return Some(entry);
+            }
+            let mut child = widget.first_child();
+            while let Some(w) = child {
+                if let Some(found) = find_entry(&w) {
+                    return Some(found);
+                }
+                child = w.next_sibling();
+            }
+            None
+        }
+        let popover = self.popover.borrow().clone();
+        if let Some(entry) = popover.and_then(|p| p.child()).and_then(|c| find_entry(&c)) {
+            entry.set_text(query);
+        }
     }
 
     pub fn search_files_for_test(self: &Rc<Self>) {
