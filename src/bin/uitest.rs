@@ -300,6 +300,47 @@ fn run(window: Rc<Window>) {
         window.close_current_tab();
     }
 
+    println!("named sessions");
+    {
+        // Two tabs, saved under a name.
+        window.open_path(files[2].clone());
+        window.open_path(files[3].clone());
+        window.save_session_as_for_test("a test session");
+
+        // A different set of tabs.
+        window.open_path(files[4].clone());
+        let before = window.open_paths_for_test();
+        check!(
+            before.contains(&files[4]),
+            "expected the new file to be open"
+        );
+
+        window.switch_to_session_for_test("a test session");
+        let after = window.open_paths_for_test();
+        check!(
+            after.contains(&files[2]) && after.contains(&files[3]),
+            "the saved tabs should have come back, got {after:?}"
+        );
+        check!(
+            !after.contains(&files[4]),
+            "tabs outside the session should have been closed, got {after:?}"
+        );
+
+        // A name that was never saved must not destroy what is open.
+        let kept = window.open_paths_for_test();
+        window.switch_to_session_for_test("no-such-session");
+        check!(
+            window.open_paths_for_test() == kept,
+            "switching to a missing session must change nothing"
+        );
+
+        window.open_sessions_for_test();
+        check!(
+            window.popover_is_open_for_test(),
+            "the sessions list should open"
+        );
+    }
+
     println!("searching across files");
     {
         window.open_path(files[0].clone());

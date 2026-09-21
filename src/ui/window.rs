@@ -316,6 +316,11 @@ impl Window {
     /// empty tab is still needed.
     pub fn restore_session(self: &Rc<Self>) -> bool {
         let session = Session::load(&self.state_root);
+        self.restore_from(session)
+    }
+
+    /// Open the tabs a session describes.
+    fn restore_from(self: &Rc<Self>, session: Session) -> bool {
         if session.documents.is_empty() {
             return false;
         }
@@ -1310,6 +1315,11 @@ impl Window {
             Box::new(|w| w.search_files()),
         );
         add(
+            "sessions",
+            &["<Control><Shift>e"],
+            Box::new(|w| w.open_sessions()),
+        );
+        add(
             "find-next",
             &["<Control>k"],
             Box::new(|w| w.find_step(true)),
@@ -1804,6 +1814,207 @@ impl Window {
             view.scroll_to_mark(&buffer.get_insert(), 0.0, true, 0.0, 0.3);
             view.grab_focus();
         }
+    }
+
+    // ------------------------------------------------- named sessions
+
+    /// Save and restore named sets of tabs.
+    ///
+    /// The point is switching context without losing one. Working on a config
+    /// change, then a note, then back — each is a handful of files, and
+    /// keeping them all open at once turns the tab bar into a haystack.
+    /// Switching sessions never loses anything: the tabs being closed are
+    /// mirrored like any others, and the session you leave is saved first.
+    fn open_sessions(self: &Rc<Self>) {
+        let entry = gtk::Entry::builder()
+            .placeholder_text("Save these tabs as…")
+            .activates_default(true)
+            .build();
+
+        let list = gtk::ListBox::builder()
+            .selection_mode(gtk::SelectionMode::Browse)
+            .build();
+
+        let popover = gtk::Popover::builder().autohide(true).build();
+
+        let names = crate::session::index::list_named(&self.state_root);
+        if names.is_empty() {
+            let empty = gtk::Label::builder()
+                .label("No saved sessions yet")
+                .xalign(0.0)
+                .build();
+            empty.add_css_class("path");
+            list.append(&gtk::ListBoxRow::builder().child(&empty).build());
+        }
+        for name in &names {
+            let label = gtk::Label::builder().label(name).xalign(0.0).build();
+            let remove = gtk::Button::builder()
+                .icon_name("window-close-symbolic")
+                .has_frame(false)
+                .tooltip_text("Forget this session")
+                .build();
+            let row_box = gtk::Box::builder()
+                .orientation(gtk::Orientation::Horizontal)
+                .spacing(8)
+                .build();
+            label.set_hexpand(true);
+            row_box.append(&label);
+            row_box.append(&remove);
+            let row = gtk::ListBoxRow::builder().child(&row_box).build();
+            unsafe { row.set_data("f3note-session", name.clone()) };
+            list.append(&row);
+
+            let this = self.clone();
+            let name = name.clone();
+            let popover_ref = popover.clone();
+            remove.connect_clicked(move |_| {
+                let _ = crate::session::index::Session::delete_named(&this.state_root, &name);
+                popover_ref.popdown();
+                this.banner
+                    .info(&format!("Forgot the session \"{name}\"."), Level::Info);
+            });
+        }
+
+        let scroller = gtk::ScrolledWindow::builder()
+            .child(&list)
+            .min_content_height(160)
+            .max_content_height(320)
+            .propagate_natural_height(true)
+            .build();
+
+        let heading = gtk::Label::builder().label("Sessions").xalign(0.0).build();
+        heading.add_css_class("path");
+        let layout = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(4)
+            .build();
+        layout.append(&heading);
+        layout.append(&scroller);
+        layout.append(&entry);
+        popover.set_child(Some(&layout));
+        self.anchor_popover(&popover);
+
+        let this = self.clone();
+        let popover_ref = popover.clone();
+        list.connect_row_activated(move |_, row| {
+            let name = unsafe { row.data::<String>("f3note-session") };
+            popover_ref.popdown();
+            if let Some(name) = name {
+                let name = unsafe { name.as_ref().clone() };
+                this.switch_to_session(&name);
+            }
+        });
+
+        let this = self.clone();
+        let popover_ref = popover.clone();
+        entry.connect_activate(move |e| {
+            let name = e.text().to_string();
+            popover_ref.popdown();
+            if name.trim().is_empty() {
+                return;
+            }
+            this.save_session_as(&name);
+        });
+
+        let popover_ref = popover.clone();
+        let keys = gtk::EventControllerKey::new();
+        keys.set_propagation_phase(gtk::PropagationPhase::Capture);
+        keys.connect_key_pressed(move |_, key, _, _| {
+            if key == gdk::Key::Escape {
+                popover_ref.popdown();
+                return glib::Propagation::Stop;
+            }
+            glib::Propagation::Proceed
+        });
+        popover.add_controller(keys);
+
+        let this = self.clone();
+        popover.connect_closed(move |p| this.dismiss_popover(p));
+        popover.popup();
+        entry.grab_focus();
+    }
+
+    /// Build a session description of the tabs currently open.
+    fn current_session(&self) -> crate::session::index::Session {
+        let docs = self.docs.borrow().clone();
+        let mut session = crate::session::index::Session {
+            version: crate::session::index::VERSION,
+            documents: Vec::with_capacity(docs.len()),
+            active: self.notebook.current_page().unwrap_or(0) as usize,
+            next_untitled: self.next_untitled.get(),
+        };
+        for doc in docs.iter() {
+            let meta = doc.meta();
+            let mut entry = Entry {
+                key: doc.store_key(),
+                path: meta.path.clone(),
+                untitled_number: meta.untitled_number,
+                cursor: meta.cursor_offset,
+                modified: doc.is_modified(),
+                encoding: meta.encoding.clone(),
+                line_ending: String::new(),
+                had_bom: meta.had_bom,
+                disk_size: meta.disk.size,
+                disk_mtime_secs: meta.disk.mtime.and_then(|t| {
+                    t.duration_since(std::time::UNIX_EPOCH)
+                        .ok()
+                        .map(|d| d.as_secs())
+                }),
+            };
+            entry.set_line_ending(meta.line_ending);
+            if entry.is_worth_restoring() {
+                session.documents.push(entry);
+            }
+        }
+        session
+    }
+
+    fn save_session_as(self: &Rc<Self>, name: &str) {
+        let session = self.current_session();
+        match session.save_named(&self.state_root, name) {
+            Ok(()) => self.banner.info(
+                &format!(
+                    "Saved {} tabs as \"{}\".",
+                    session.documents.len(),
+                    crate::session::index::sanitise_name(name)
+                ),
+                Level::Info,
+            ),
+            Err(e) => self
+                .banner
+                .info(&format!("Could not save the session: {e}"), Level::Error),
+        }
+    }
+
+    /// Close what is open and bring back a named set of tabs.
+    fn switch_to_session(self: &Rc<Self>, name: &str) {
+        let Some(session) = crate::session::index::Session::load_named(&self.state_root, name)
+        else {
+            self.banner
+                .info(&format!("No session called \"{name}\"."), Level::Warning);
+            return;
+        };
+
+        // Everything about to be closed is mirrored first, so switching away
+        // from unsaved work costs nothing.
+        self.flush_all();
+
+        let ids: Vec<DocumentId> = self.docs.borrow().iter().map(|d| d.id).collect();
+        self.suppress_switch.set(true);
+        for _ in 0..ids.len() {
+            self.notebook.remove_page(Some(0));
+        }
+        self.docs.borrow_mut().clear();
+        *self.mru.borrow_mut() = Mru::default();
+        self.suppress_switch.set(false);
+
+        self.restore_from(session);
+        if self.docs.borrow().is_empty() {
+            self.new_untitled();
+        }
+        self.session_dirty.set(true);
+        self.banner
+            .info(&format!("Switched to \"{name}\"."), Level::Info);
     }
 
     // --------------------------------------------- search across files
@@ -2771,6 +2982,22 @@ impl Window {
 
     pub fn jump_to_line_for_test(self: &Rc<Self>, line: i32) {
         self.jump_to_line(line);
+    }
+
+    pub fn save_session_as_for_test(self: &Rc<Self>, name: &str) {
+        self.save_session_as(name);
+    }
+
+    pub fn switch_to_session_for_test(self: &Rc<Self>, name: &str) {
+        self.switch_to_session(name);
+    }
+
+    pub fn open_sessions_for_test(self: &Rc<Self>) {
+        self.open_sessions();
+    }
+
+    pub fn open_paths_for_test(&self) -> Vec<std::path::PathBuf> {
+        self.docs.borrow().iter().filter_map(|d| d.path()).collect()
     }
 
     pub fn search_files_for_test(self: &Rc<Self>) {

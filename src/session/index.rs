@@ -117,6 +117,57 @@ fn primary(root: &Path) -> PathBuf {
     root.join("session.json")
 }
 
+/// Where a named session lives.
+///
+/// The name is reduced to something that is safe as a file name. A session
+/// called "../../etc/passwd" is a session called "etc-passwd", not a path
+/// traversal, and one called "work: 2026" keeps its meaning without keeping
+/// characters that break on some filesystem somewhere.
+pub fn sanitise_name(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' || c == ' ' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let collapsed = cleaned
+        .split(['-', ' '])
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    let trimmed = collapsed.trim_matches('-');
+    if trimmed.is_empty() {
+        "session".to_owned()
+    } else {
+        trimmed.chars().take(64).collect()
+    }
+}
+
+fn named(root: &Path, name: &str) -> PathBuf {
+    root.join("sessions")
+        .join(format!("{}.json", sanitise_name(name)))
+}
+
+/// Every named session, alphabetically.
+pub fn list_named(root: &Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(root.join("sessions")) else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = entries
+        .flatten()
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            name.strip_suffix(".json").map(str::to_owned)
+        })
+        .collect();
+    names.sort();
+    names
+}
+
 fn backup(root: &Path) -> PathBuf {
     root.join("session.json.bak")
 }
@@ -124,6 +175,28 @@ fn backup(root: &Path) -> PathBuf {
 impl Session {
     /// Read the session, preferring the primary copy and falling back to the
     /// backup. Returns the defaults if neither can be used.
+    /// Save this set of tabs under a name, to come back to later.
+    pub fn save_named(&self, root: &Path, name: &str) -> std::io::Result<()> {
+        let path = named(root, name);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let encoded = serde_json::to_vec_pretty(self)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        atomic::write(&path, &encoded)
+    }
+
+    /// Read back a named session, if it is there and usable.
+    pub fn load_named(root: &Path, name: &str) -> Option<Session> {
+        let bytes = std::fs::read(named(root, name)).ok()?;
+        let session: Session = serde_json::from_slice(&bytes).ok()?;
+        (session.version == VERSION).then(|| session.sanitised())
+    }
+
+    pub fn delete_named(root: &Path, name: &str) -> std::io::Result<()> {
+        std::fs::remove_file(named(root, name))
+    }
+
     pub fn load(root: &Path) -> Session {
         for path in [primary(root), backup(root)] {
             let Ok(bytes) = std::fs::read(&path) else {
@@ -298,6 +371,52 @@ mod tests {
         let loaded = Session::load(&root);
         assert_eq!(loaded.documents.len(), 1);
         assert_eq!(loaded.documents[0].key, "k2");
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn session_names_become_safe_file_names() {
+        assert_eq!(sanitise_name("work"), "work");
+        assert_eq!(sanitise_name("work: 2026"), "work-2026");
+        assert_eq!(sanitise_name("my config files"), "my-config-files");
+        // No traversal, whatever the user types.
+        assert_eq!(sanitise_name("../../etc/passwd"), "etc-passwd");
+        assert_eq!(sanitise_name("/"), "session");
+        assert_eq!(sanitise_name(""), "session");
+        assert!(sanitise_name(&"x".repeat(200)).len() <= 64);
+    }
+
+    #[test]
+    fn named_sessions_round_trip_and_list() {
+        let root = scratch("named");
+        let mut s = Session::default();
+        s.documents.push(entry("k1", Some("/tmp/work.txt")));
+        s.save_named(&root, "work").unwrap();
+
+        let mut other = Session::default();
+        other.documents.push(entry("k2", Some("/tmp/config.txt")));
+        other.save_named(&root, "config").unwrap();
+
+        assert_eq!(list_named(&root), vec!["config", "work"]);
+
+        let loaded = Session::load_named(&root, "work").unwrap();
+        assert_eq!(loaded.documents.len(), 1);
+        assert_eq!(
+            loaded.documents[0].path,
+            Some(PathBuf::from("/tmp/work.txt"))
+        );
+
+        Session::delete_named(&root, "work").unwrap();
+        assert_eq!(list_named(&root), vec!["config"]);
+        assert!(Session::load_named(&root, "work").is_none());
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn a_named_session_that_is_not_there_is_none_rather_than_an_error() {
+        let root = scratch("nonamed");
+        assert!(Session::load_named(&root, "absent").is_none());
+        assert!(list_named(&root).is_empty());
         std::fs::remove_dir_all(root).ok();
     }
 
