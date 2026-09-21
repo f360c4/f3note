@@ -1295,6 +1295,11 @@ impl Window {
         );
         add("switcher", &["<Control>p"], Box::new(|w| w.open_switcher()));
         add(
+            "history",
+            &["<Control><Shift>h"],
+            Box::new(|w| w.open_history()),
+        );
+        add(
             "find-next",
             &["<Control>k"],
             Box::new(|w| w.find_step(true)),
@@ -1791,6 +1796,186 @@ impl Window {
         }
     }
 
+    // ---------------------------------------------------------- history
+
+    /// Go back to an earlier version of this document.
+    ///
+    /// The snapshots have been written since the first release; this is the
+    /// interface for them. It is the one thing here that neither Notepad++ nor
+    /// a plain editor offers: the version list survives saving, so "I broke
+    /// this an hour ago and saved it" is recoverable, which is exactly the
+    /// case a save prompt cannot help with.
+    fn open_history(self: &Rc<Self>) {
+        let Some(doc) = self.current_document() else {
+            return;
+        };
+        let store = DocStore::new(&self.state_root, &doc.store_key());
+        let entries = store.history_entries().unwrap_or_default();
+
+        if entries.is_empty() {
+            self.banner.info(
+                "No earlier versions of this document yet. They are kept as you work.",
+                Level::Info,
+            );
+            return;
+        }
+
+        let list = gtk::ListBox::builder()
+            .selection_mode(gtk::SelectionMode::Browse)
+            .build();
+
+        let now = std::time::SystemTime::now();
+        // Newest first: the version someone wants back is almost always a
+        // recent one.
+        for entry in entries.iter().rev() {
+            let when = gtk::Label::builder()
+                .label(entry.age(now))
+                .xalign(0.0)
+                .build();
+            let size = gtk::Label::builder()
+                .label(format!(
+                    "{:.1} KB compressed",
+                    entry.stored_bytes as f64 / 1024.0
+                ))
+                .xalign(0.0)
+                .build();
+            size.add_css_class("path");
+
+            let row_box = gtk::Box::builder()
+                .orientation(gtk::Orientation::Vertical)
+                .build();
+            row_box.append(&when);
+            row_box.append(&size);
+            let row = gtk::ListBoxRow::builder().child(&row_box).build();
+            unsafe { row.set_data("f3note-history-seq", entry.sequence) };
+            list.append(&row);
+        }
+        if let Some(first) = list.row_at_index(0) {
+            list.select_row(Some(&first));
+        }
+
+        let scroller = gtk::ScrolledWindow::builder()
+            .child(&list)
+            .min_content_height(220)
+            .max_content_height(360)
+            .propagate_natural_height(true)
+            .build();
+
+        let heading = gtk::Label::builder()
+            .label(format!("{} — earlier versions", doc.title()))
+            .xalign(0.0)
+            .build();
+        heading.add_css_class("path");
+
+        let layout = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(4)
+            .build();
+        layout.append(&heading);
+        layout.append(&scroller);
+
+        let popover = gtk::Popover::builder()
+            .child(&layout)
+            .autohide(true)
+            .build();
+        self.anchor_popover(&popover);
+
+        let restore = {
+            let this = self.clone();
+            let popover = popover.clone();
+            let doc = doc.clone();
+            move |row: &gtk::ListBoxRow| {
+                let sequence = unsafe { row.data::<u64>("f3note-history-seq") };
+                popover.popdown();
+                let Some(sequence) = sequence else { return };
+                let sequence = unsafe { *sequence.as_ref() };
+                this.restore_version(&doc, sequence);
+            }
+        };
+
+        let restore_row = restore.clone();
+        list.connect_row_activated(move |_, row| restore_row(row));
+
+        let keys = gtk::EventControllerKey::new();
+        let list_ref = list.clone();
+        let popover_ref = popover.clone();
+        keys.connect_key_pressed(move |_, key, _, _| match key {
+            gdk::Key::Return | gdk::Key::KP_Enter => {
+                if let Some(row) = list_ref.selected_row() {
+                    restore(&row);
+                }
+                glib::Propagation::Stop
+            }
+            gdk::Key::Escape => {
+                popover_ref.popdown();
+                glib::Propagation::Stop
+            }
+            _ => glib::Propagation::Proceed,
+        });
+        list.add_controller(keys);
+
+        let this = self.clone();
+        popover.connect_closed(move |p| this.dismiss_popover(p));
+
+        popover.popup();
+        list.grab_focus();
+    }
+
+    /// Put an earlier version into the buffer.
+    ///
+    /// As one undo step, and the current contents are mirrored first, so the
+    /// version being replaced becomes history in its own right. Going back is
+    /// therefore never a one-way door.
+    fn restore_version(self: &Rc<Self>, doc: &Rc<Document>, sequence: u64) {
+        let Some(buffer) = doc.buffer() else { return };
+        let store = DocStore::new(&self.state_root, &doc.store_key());
+
+        let entries = store.history_entries().unwrap_or_default();
+        let Some(entry) = entries.iter().find(|e| e.sequence == sequence) else {
+            self.banner
+                .info("That version is no longer available.", Level::Warning);
+            return;
+        };
+
+        let bytes = match store.read_history(entry) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                self.banner
+                    .info(&format!("Could not read that version: {e}"), Level::Error);
+                return;
+            }
+        };
+
+        // Keep what is about to be replaced, so this is reversible even after
+        // the undo stack is gone.
+        let limits = self.engine.config().editor;
+        let current = doc.encode(&Self::buffer_text(&buffer));
+        let _ = store.write_mirror(&current);
+        if current.len() as u64 <= limits.history_max_bytes {
+            let _ = store.push_history(
+                &current,
+                limits.history_versions,
+                limits.history_max_total_bytes,
+            );
+        }
+
+        let age = entry.age(std::time::SystemTime::now());
+        let decoded =
+            crate::text::decode_with_limit(&bytes, self.engine.config().appearance.long_line_chars);
+
+        buffer.begin_user_action();
+        let (mut start, mut end) = buffer.bounds();
+        buffer.delete(&mut start, &mut end);
+        buffer.insert(&mut start, &decoded.text);
+        buffer.end_user_action();
+        buffer.set_modified(true);
+
+        self.banner.info(
+            &format!("Restored the version from {age}. Ctrl+Z puts it back."),
+            Level::Info,
+        );
+    }
+
     // ------------------------------------------------------ Ctrl+P switcher
 
     /// Jump to a tab by typing part of its name.
@@ -2219,6 +2404,37 @@ impl Window {
 
     pub fn jump_to_line_for_test(self: &Rc<Self>, line: i32) {
         self.jump_to_line(line);
+    }
+
+    pub fn open_history_for_test(self: &Rc<Self>) {
+        self.open_history();
+    }
+
+    /// Restore the oldest version this document has, and report whether there
+    /// was one to restore.
+    pub fn restore_oldest_version_for_test(self: &Rc<Self>) -> bool {
+        let Some(doc) = self.current_document() else {
+            return false;
+        };
+        let store = crate::session::store::DocStore::new(&self.state_root, &doc.store_key());
+        let Some(entry) = store
+            .history_entries()
+            .unwrap_or_default()
+            .into_iter()
+            .next()
+        else {
+            return false;
+        };
+        self.restore_version(&doc, entry.sequence);
+        true
+    }
+
+    pub fn store_key_for_test(&self) -> Option<String> {
+        self.current_document().map(|d| d.store_key())
+    }
+
+    pub fn state_root_for_test(&self) -> std::path::PathBuf {
+        self.state_root.clone()
     }
 
     pub fn open_switcher_for_test(self: &Rc<Self>) {

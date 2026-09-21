@@ -191,10 +191,13 @@ impl DocStore {
                 let name = e.file_name().to_string_lossy().into_owned();
                 let stem = name.strip_suffix(".zst")?;
                 let (seq, hash) = stem.split_once('-')?;
+                let metadata = e.metadata().ok();
                 Some(HistoryEntry {
                     sequence: seq.parse().ok()?,
                     hash: hash.to_owned(),
                     path: e.path(),
+                    written_at: metadata.as_ref().and_then(|m| m.modified().ok()),
+                    stored_bytes: metadata.as_ref().map(|m| m.len()).unwrap_or(0),
                 })
             })
             .collect();
@@ -282,6 +285,41 @@ pub struct HistoryEntry {
     pub sequence: u64,
     pub hash: Hash,
     pub path: PathBuf,
+    /// When the snapshot was written, from the file's own timestamp.
+    ///
+    /// Taken from the filesystem rather than recorded in the name, so a
+    /// history directory copied or restored from a backup still describes
+    /// itself honestly.
+    pub written_at: Option<std::time::SystemTime>,
+    /// Size on disk, compressed.
+    pub stored_bytes: u64,
+}
+
+impl HistoryEntry {
+    /// How long ago this was written, in words.
+    ///
+    /// Rough on purpose. "4 minutes ago" is what someone looking for the
+    /// version from before they broke something needs; a timestamp to the
+    /// second is noise they have to translate.
+    pub fn age(&self, now: std::time::SystemTime) -> String {
+        let Some(written) = self.written_at else {
+            return "unknown".to_owned();
+        };
+        let Ok(elapsed) = now.duration_since(written) else {
+            return "just now".to_owned();
+        };
+        let seconds = elapsed.as_secs();
+        match seconds {
+            0..=9 => "just now".to_owned(),
+            10..=59 => format!("{seconds} seconds ago"),
+            60..=119 => "a minute ago".to_owned(),
+            120..=3599 => format!("{} minutes ago", seconds / 60),
+            3600..=7199 => "an hour ago".to_owned(),
+            7200..=86399 => format!("{} hours ago", seconds / 3600),
+            86400..=172799 => "yesterday".to_owned(),
+            _ => format!("{} days ago", seconds / 86400),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -421,6 +459,50 @@ mod tests {
             sequences.windows(2).all(|w| w[1] == w[0] + 1),
             "gaps in the kept history: {sequences:?}"
         );
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn ages_are_described_in_words_people_use() {
+        let now = std::time::SystemTime::now();
+        let entry = |ago: u64| HistoryEntry {
+            sequence: 1,
+            hash: "x".into(),
+            path: PathBuf::new(),
+            written_at: Some(now - std::time::Duration::from_secs(ago)),
+            stored_bytes: 0,
+        };
+        assert_eq!(entry(3).age(now), "just now");
+        assert_eq!(entry(30).age(now), "30 seconds ago");
+        assert_eq!(entry(90).age(now), "a minute ago");
+        assert_eq!(entry(600).age(now), "10 minutes ago");
+        assert_eq!(entry(5400).age(now), "an hour ago");
+        assert_eq!(entry(10800).age(now), "3 hours ago");
+        assert_eq!(entry(90000).age(now), "yesterday");
+        assert_eq!(entry(300000).age(now), "3 days ago");
+    }
+
+    #[test]
+    fn an_entry_with_no_timestamp_says_so_rather_than_guessing() {
+        let entry = HistoryEntry {
+            sequence: 1,
+            hash: "x".into(),
+            path: PathBuf::new(),
+            written_at: None,
+            stored_bytes: 0,
+        };
+        assert_eq!(entry.age(std::time::SystemTime::now()), "unknown");
+    }
+
+    #[test]
+    fn history_entries_carry_their_size_and_time() {
+        let root = scratch("entrymeta");
+        let s = DocStore::new(&root, "k");
+        s.push_history(b"some content", 20, u64::MAX).unwrap();
+        let entries = s.history_entries().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert!(entries[0].stored_bytes > 0);
+        assert!(entries[0].written_at.is_some());
         std::fs::remove_dir_all(root).ok();
     }
 

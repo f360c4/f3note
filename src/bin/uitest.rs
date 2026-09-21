@@ -300,6 +300,60 @@ fn run(window: Rc<Window>) {
         window.close_current_tab();
     }
 
+    println!("going back to an earlier version");
+    {
+        window.new_untitled();
+        let key = window.store_key_for_test().expect("a store key");
+        let store = f3note::session::store::DocStore::new(&window.state_root_for_test(), &key);
+
+        // Stand in for what autosave writes while someone works.
+        store
+            .push_history(b"first version\n", 20, u64::MAX)
+            .unwrap();
+        store
+            .push_history(b"second version\n", 20, u64::MAX)
+            .unwrap();
+
+        window.set_text_for_test("what is here now\n");
+        check!(
+            window.restore_oldest_version_for_test(),
+            "there should have been a version to restore"
+        );
+        check!(
+            window.text_for_test() == "first version\n",
+            "restored the wrong version: {:?}",
+            window.text_for_test()
+        );
+
+        // Restoring must not be a one-way door: the replaced text becomes
+        // history of its own.
+        let after = store.history_entries().unwrap();
+        let texts: Vec<String> = after
+            .iter()
+            .map(|e| String::from_utf8(store.read_history(e).unwrap()).unwrap())
+            .collect();
+        check!(
+            texts.iter().any(|t| t == "what is here now\n"),
+            "the replaced version should have been kept: {texts:?}"
+        );
+
+        // And one undo puts it straight back.
+        window.undo_for_test();
+        check!(
+            window.text_for_test() == "what is here now\n",
+            "undo after restoring did not work: {:?}",
+            window.text_for_test()
+        );
+
+        window.open_history_for_test();
+        check!(
+            window.popover_is_open_for_test(),
+            "the history list should open"
+        );
+
+        window.close_and_forget();
+    }
+
     println!("close and forget");
     window.open_path(files[1].clone());
     window.close_and_forget();
