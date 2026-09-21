@@ -1,3 +1,5 @@
+<img src="docs/images/icon.png" width="96" align="right" alt="">
+
 # f3note
 
 A fast, minimal tabbed text editor for Wayland. Windows Notepad's simplicity,

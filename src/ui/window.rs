@@ -1858,8 +1858,12 @@ impl Window {
     /// Switching sessions never loses anything: the tabs being closed are
     /// mirrored like any others, and the session you leave is saved first.
     fn open_sessions(self: &Rc<Self>) {
+        let open_count = self.docs.borrow().len();
         let entry = gtk::Entry::builder()
-            .placeholder_text("Save these tabs as…")
+            .placeholder_text(match open_count {
+                1 => "Name for this tab, then Enter".to_owned(),
+                n => format!("Name for these {n} tabs, then Enter"),
+            })
             .activates_default(true)
             .build();
 
@@ -1871,12 +1875,30 @@ impl Window {
 
         let names = crate::session::index::list_named(&self.state_root);
         if names.is_empty() {
+            // The empty state has to teach, not just report. A list saying
+            // "none" above a text box is a puzzle: a user reached this screen,
+            // saw nothing, and could not work out that the box was how you
+            // make the first one.
             let empty = gtk::Label::builder()
-                .label("No saved sessions yet")
+                .label(
+                    "A session is a set of tabs with a name.\n\n\
+                     Save the tabs you have open under a name below, then \
+                     open other files and save those under another. \
+                     Picking a name here closes what is open and brings \
+                     that set back — nothing is lost either way, unsaved \
+                     changes included.",
+                )
                 .xalign(0.0)
+                .wrap(true)
+                .max_width_chars(46)
                 .build();
             empty.add_css_class("path");
-            list.append(&gtk::ListBoxRow::builder().child(&empty).build());
+            let row = gtk::ListBoxRow::builder()
+                .child(&empty)
+                .selectable(false)
+                .activatable(false)
+                .build();
+            list.append(&row);
         }
         for name in &names {
             let label = gtk::Label::builder().label(name).xalign(0.0).build();
@@ -1914,7 +1936,14 @@ impl Window {
             .propagate_natural_height(true)
             .build();
 
-        let heading = gtk::Label::builder().label("Sessions").xalign(0.0).build();
+        let heading = gtk::Label::builder()
+            .label(if names.is_empty() {
+                "Sessions"
+            } else {
+                "Sessions — pick one to switch, or name these tabs below"
+            })
+            .xalign(0.0)
+            .build();
         heading.add_css_class("path");
         let layout = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)
