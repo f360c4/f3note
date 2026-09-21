@@ -14,6 +14,7 @@ pub mod ipc;
 pub mod mru;
 pub mod paths;
 pub mod recent;
+pub mod search;
 pub mod session;
 pub mod text;
 pub mod theme;

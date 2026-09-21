@@ -1305,6 +1305,11 @@ impl Window {
             Box::new(|w| w.open_history()),
         );
         add(
+            "search-files",
+            &["<Control><Shift>f"],
+            Box::new(|w| w.search_files()),
+        );
+        add(
             "find-next",
             &["<Control>k"],
             Box::new(|w| w.find_step(true)),
@@ -1799,6 +1804,210 @@ impl Window {
             view.scroll_to_mark(&buffer.get_insert(), 0.0, true, 0.0, 0.3);
             view.grab_focus();
         }
+    }
+
+    // --------------------------------------------- search across files
+
+    /// Search the open tabs and the current file's folder.
+    ///
+    /// Scope is deliberately modest. This is a notepad; `ripgrep` exists and
+    /// is better at searching a codebase. What is worth having here is finding
+    /// the thing you know is in one of the files you are working on, without
+    /// leaving the editor to do it.
+    fn search_files(self: &Rc<Self>) {
+        let entry = gtk::SearchEntry::builder()
+            .placeholder_text("Search open tabs and this folder")
+            .width_chars(44)
+            .build();
+        let summary = gtk::Label::builder().xalign(0.0).build();
+        summary.add_css_class("path");
+
+        let list = gtk::ListBox::builder()
+            .selection_mode(gtk::SelectionMode::Browse)
+            .build();
+        let scroller = gtk::ScrolledWindow::builder()
+            .child(&list)
+            .min_content_height(260)
+            .max_content_height(420)
+            .propagate_natural_height(true)
+            .build();
+
+        let layout = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(4)
+            .build();
+        layout.append(&entry);
+        layout.append(&summary);
+        layout.append(&scroller);
+
+        let popover = gtk::Popover::builder()
+            .child(&layout)
+            .autohide(true)
+            .build();
+        self.anchor_popover(&popover);
+
+        let this = self.clone();
+        let list_ref = list.clone();
+        let summary_ref = summary.clone();
+        entry.connect_search_changed(move |e| {
+            let query = e.text().to_string();
+            while let Some(child) = list_ref.first_child() {
+                list_ref.remove(&child);
+            }
+            // One or two characters match nearly everything and make the list
+            // useless while costing the most to build.
+            if query.chars().count() < 2 {
+                summary_ref.set_text("");
+                return;
+            }
+
+            let results = this.collect_matches(&query);
+            summary_ref.set_text(&match results.len() {
+                0 => "No matches".to_owned(),
+                1 => "1 match".to_owned(),
+                n => format!("{n} matches"),
+            });
+
+            for (path, m) in results.iter().take(500) {
+                let where_ = gtk::Label::builder()
+                    .label(format!(
+                        "{}:{}",
+                        path.file_name()
+                            .map(|n| n.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| path.display().to_string()),
+                        m.line + 1
+                    ))
+                    .xalign(0.0)
+                    .build();
+                let text = gtk::Label::builder()
+                    .label(m.text.trim())
+                    .xalign(0.0)
+                    .ellipsize(gtk::pango::EllipsizeMode::End)
+                    .build();
+                text.add_css_class("path");
+
+                let row_box = gtk::Box::builder()
+                    .orientation(gtk::Orientation::Vertical)
+                    .build();
+                row_box.append(&where_);
+                row_box.append(&text);
+                let row = gtk::ListBoxRow::builder().child(&row_box).build();
+                unsafe { row.set_data("f3note-hit-path", path.display().to_string()) };
+                unsafe { row.set_data("f3note-hit-line", m.line) };
+                list_ref.append(&row);
+            }
+            if let Some(first) = list_ref.row_at_index(0) {
+                list_ref.select_row(Some(&first));
+            }
+        });
+
+        let jump = {
+            let this = self.clone();
+            let popover = popover.clone();
+            move |row: &gtk::ListBoxRow| {
+                let path = unsafe { row.data::<String>("f3note-hit-path") };
+                let line = unsafe { row.data::<i32>("f3note-hit-line") };
+                popover.popdown();
+                let (Some(path), Some(line)) = (path, line) else {
+                    return;
+                };
+                let path = unsafe { path.as_ref().clone() };
+                let line = unsafe { *line.as_ref() };
+                this.open_path(std::path::PathBuf::from(path));
+                this.jump_to_line(line);
+            }
+        };
+
+        let jump_row = jump.clone();
+        list.connect_row_activated(move |_, row| jump_row(row));
+
+        let list_ref = list.clone();
+        let jump_entry = jump.clone();
+        entry.connect_activate(move |_| {
+            if let Some(row) = list_ref.selected_row() {
+                jump_entry(&row);
+            }
+        });
+
+        let keys = gtk::EventControllerKey::new();
+        let list_ref = list.clone();
+        keys.connect_key_pressed(move |_, key, _, _| {
+            let delta = match key {
+                gdk::Key::Down => 1,
+                gdk::Key::Up => -1,
+                _ => return glib::Propagation::Proceed,
+            };
+            let current = list_ref.selected_row().map(|r| r.index()).unwrap_or(0);
+            if let Some(next) = list_ref.row_at_index(current + delta) {
+                list_ref.select_row(Some(&next));
+            }
+            glib::Propagation::Stop
+        });
+        entry.add_controller(keys);
+
+        let popover_ref = popover.clone();
+        entry.connect_stop_search(move |_| popover_ref.popdown());
+        let this = self.clone();
+        popover.connect_closed(move |p| this.dismiss_popover(p));
+
+        popover.popup();
+        entry.grab_focus();
+    }
+
+    /// Everything matching `query`, in the open tabs and the current folder.
+    fn collect_matches(
+        self: &Rc<Self>,
+        query: &str,
+    ) -> Vec<(std::path::PathBuf, crate::search::Match)> {
+        use std::collections::HashSet;
+
+        let mut results = Vec::new();
+        let mut searched: HashSet<std::path::PathBuf> = HashSet::new();
+
+        // Open tabs first, and from the buffer rather than from disk: what the
+        // user can see is what they expect to search, unsaved changes and all.
+        let docs = self.docs.borrow().clone();
+        for doc in docs.iter() {
+            let Some(buffer) = doc.buffer() else { continue };
+            let (start, end) = buffer.bounds();
+            let text = buffer.text(&start, &end, true).to_string();
+            let path = doc
+                .path()
+                .unwrap_or_else(|| std::path::PathBuf::from(doc.title()));
+            if let Some(real) = doc.path() {
+                searched.insert(real);
+            }
+            for m in crate::search::find_in_text(&text, query, false) {
+                results.push((path.clone(), m));
+            }
+        }
+
+        // Then the folder the current file lives in.
+        let folder = self
+            .current_document()
+            .and_then(|d| d.path())
+            .and_then(|p| p.parent().map(|p| p.to_path_buf()));
+        let Some(folder) = folder else {
+            return results;
+        };
+
+        let limits = crate::search::Limits::default();
+        for path in crate::search::collect_files(&folder, &limits) {
+            if searched.contains(&path) {
+                continue;
+            }
+            let Ok(bytes) = std::fs::read(&path) else {
+                continue;
+            };
+            if !crate::search::looks_like_text(&bytes[..bytes.len().min(1024)]) {
+                continue;
+            }
+            let text = String::from_utf8_lossy(&bytes);
+            for m in crate::search::find_in_text(&text, query, false) {
+                results.push((path.clone(), m));
+            }
+        }
+        results
     }
 
     // ------------------------------------------------ status bar actions
@@ -2562,6 +2771,17 @@ impl Window {
 
     pub fn jump_to_line_for_test(self: &Rc<Self>, line: i32) {
         self.jump_to_line(line);
+    }
+
+    pub fn search_files_for_test(self: &Rc<Self>) {
+        self.search_files();
+    }
+
+    pub fn collect_matches_for_test(
+        self: &Rc<Self>,
+        query: &str,
+    ) -> Vec<(std::path::PathBuf, crate::search::Match)> {
+        self.collect_matches(query)
     }
 
     pub fn open_history_for_test(self: &Rc<Self>) {

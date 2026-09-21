@@ -300,6 +300,37 @@ fn run(window: Rc<Window>) {
         window.close_current_tab();
     }
 
+    println!("searching across files");
+    {
+        window.open_path(files[0].clone());
+        // Unsaved text must be searchable: what is on screen is what people
+        // expect to find, saved or not.
+        window.set_text_for_test("contents of file 0\nneedle-in-buffer here\n");
+
+        let hits = window.collect_matches_for_test("needle-in-buffer");
+        check!(
+            hits.iter().any(|(_, m)| m.line == 1),
+            "unsaved buffer text should be searchable, got {hits:?}"
+        );
+
+        // And text that is only on disk, in a neighbouring file, is found too.
+        let disk_hits = window.collect_matches_for_test("second line");
+        check!(
+            !disk_hits.is_empty(),
+            "should have found text in neighbouring files on disk"
+        );
+
+        let none = window.collect_matches_for_test("zzz-definitely-not-present-zzz");
+        check!(none.is_empty(), "expected no matches, got {none:?}");
+
+        window.search_files_for_test();
+        check!(
+            window.popover_is_open_for_test(),
+            "the search panel should open"
+        );
+        window.close_current_tab();
+    }
+
     println!("going back to an earlier version");
     {
         window.new_untitled();

@@ -191,7 +191,13 @@ fn install_scheme(palette: &Palette) -> Option<&'static str> {
 }
 
 /// Something that wants to be told when the appearance changes.
-type ThemeListener = Box<dyn Fn(&Theme)>;
+///
+/// Held behind an `Rc` rather than a `Box` so the list can be cloned before
+/// the callbacks run. Calling them while holding a borrow of the list would
+/// abort the moment any of them registered another listener — which nothing
+/// does today, and which is exactly the kind of thing that is true until it
+/// suddenly is not.
+type ThemeListener = Rc<dyn Fn(&Theme)>;
 
 /// Owns the live appearance: the installed stylesheet, the file watches that
 /// notice a theme change, and the callbacks that want to know about one.
@@ -259,14 +265,15 @@ impl ThemeEngine {
     /// path for initial setup.
     pub fn on_change<F: Fn(&Theme) + 'static>(&self, f: F) {
         f(&self.theme.borrow());
-        self.listeners.borrow_mut().push(Box::new(f));
+        self.listeners.borrow_mut().push(Rc::new(f));
     }
 
     fn apply(&self) {
         let theme = self.theme.borrow().clone();
         self.provider.load_from_string(&theme.stylesheet());
         install_scheme(&theme.palette);
-        for listener in self.listeners.borrow().iter() {
+        let listeners = self.listeners.borrow().clone();
+        for listener in listeners {
             listener(&theme);
         }
     }

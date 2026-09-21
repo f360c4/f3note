@@ -10,7 +10,10 @@
 # owned data.
 set -u
 cd "$(dirname "$0")/.."
-HITS=$(grep -rnE '^\s*(} )?(if|while) let .*\.borrow(_mut)?\(\)|^\s*match .*\.borrow(_mut)?\(\)' src/ || true)
+# `for x in cell.borrow().iter()` holds the guard for the whole loop too, for
+# the same reason: the temporary lives to the end of the statement, and a for
+# loop is one statement.
+HITS=$(grep -rnE '^\s*(} )?(if|while) let .*\.borrow(_mut)?\(\)|^\s*match .*\.borrow(_mut)?\(\)|^\s*for .* in .*\.borrow(_mut)?\(\)' src/ || true)
 if [ -n "$HITS" ]; then
   echo "borrow guard held across a block:"
   echo "$HITS"
