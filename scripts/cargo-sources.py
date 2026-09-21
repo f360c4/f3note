@@ -39,12 +39,18 @@ def main() -> int:
                 "dest": f"cargo/vendor/{name}-{version}",
             }
         )
-        # Cargo expects a checksum file beside each vendored crate. "package"
-        # being null tells it not to re-verify the archive it never saw.
+        # Cargo expects a checksum file beside each vendored crate, and the
+        # "package" field has to carry the same hash the lock file records.
+        # Writing null there instead makes cargo refuse the crate with
+        # "checksum could not be calculated, but a checksum is listed in the
+        # existing lock file" — it reads null as a source that cannot do
+        # checksums replacing one that can. The files map stays empty because
+        # flatpak-builder unpacked the archive, so there is nothing to compare
+        # file by file.
         vendored.append(
             {
                 "type": "inline",
-                "contents": json.dumps({"package": None, "files": {}}, indent=2),
+                "contents": json.dumps({"package": checksum, "files": {}}, indent=2),
                 "dest": f"cargo/vendor/{name}-{version}",
                 "dest-filename": ".cargo-checksum.json",
             }

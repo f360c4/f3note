@@ -236,21 +236,79 @@ window.f3note scrollbar slider {{
 }}
 window.f3note scrollbar slider:hover {{ background-color: {muted}; }}
 
-/* Ctrl+P switcher. A list, not a dialog. */
-window.f3note .f3note-switcher {{
+/* The popovers: Ctrl+P, go to line, sessions, history, status menus.
+ *
+ * These are styled by node rather than only by the class we add, because a
+ * GtkPopover is not one widget. It has an internal `contents` node that
+ * carries the theme's own background and rounded corners, and the entries and
+ * lists inside keep the theme's styling too. Styling only the outer class
+ * left the frame ours and everything inside looking like stock Adwaita —
+ * a GNOME dialog dropped into an editor that looks nothing like GNOME. */
+popover.f3note-switcher {{
+  background: none;
+}}
+popover.f3note-switcher > contents {{
   background-color: {bar_bg};
   border: 1px solid {hairline};
+  border-radius: 2px;
+  box-shadow: none;
+  padding: 6px;
+  color: {fg};
 }}
-window.f3note .f3note-switcher row {{
+popover.f3note-switcher > arrow {{
+  background: none;
+  border: none;
+}}
+
+popover.f3note-switcher entry,
+popover.f3note-switcher entry > text {{
+  background-color: {lighter_solid};
+  color: {fg};
+  border: 1px solid {hairline};
+  border-radius: 2px;
+  box-shadow: none;
+  outline: none;
+  min-height: 0;
+  padding: 4px 6px;
+}}
+popover.f3note-switcher entry:focus,
+popover.f3note-switcher entry:focus-within {{
+  border-color: {accent};
+  box-shadow: none;
+  outline: none;
+}}
+popover.f3note-switcher entry image {{ color: {muted}; }}
+
+popover.f3note-switcher list,
+popover.f3note-switcher listview,
+popover.f3note-switcher scrolledwindow {{
+  background-color: transparent;
+  border: none;
+}}
+popover.f3note-switcher row {{
   background-color: transparent;
   color: {fg};
-  padding: 3px 10px;
+  border-radius: 2px;
+  padding: 3px 8px;
+  min-height: 0;
 }}
-window.f3note .f3note-switcher row:selected {{
+popover.f3note-switcher row:hover {{ background-color: {hover}; }}
+popover.f3note-switcher row:selected {{
   background-color: {selection};
   color: {sel_fg};
 }}
-window.f3note .f3note-switcher row label.path {{ color: {muted}; }}
+popover.f3note-switcher row:selected label {{ color: {sel_fg}; }}
+popover.f3note-switcher label.path {{ color: {muted}; font-size: {small}pt; }}
+popover.f3note-switcher button {{
+  background: none;
+  border: none;
+  box-shadow: none;
+  color: {muted};
+  min-height: 0;
+  min-width: 0;
+  padding: 0 4px;
+}}
+popover.f3note-switcher button:hover {{ color: {red}; }}
 ",
         family = a.font.family,
         size = a.font.size,

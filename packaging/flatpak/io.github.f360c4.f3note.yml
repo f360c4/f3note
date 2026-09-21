@@ -7,11 +7,23 @@
 # new enough, and on those systems they are not.
 app-id: io.github.f360c4.f3note
 runtime: org.gnome.Platform
-runtime-version: '47'
+runtime-version: '51'
 sdk: org.gnome.Sdk
 
 # Rust is not in the runtime; it comes from an SDK extension used only at
 # build time.
+#
+# The runtime version is not a free choice. f3note needs Rust 1.92 — the
+# gtk-rs crates require it — and each GNOME runtime pins a freedesktop base
+# whose rust-stable extension carries a fixed Rust. GNOME 47 pairs with
+# base 24.08, which has 1.89, and the build simply fails there. GNOME 51
+# pairs with 26.08 and 1.98. Checked, not assumed:
+#
+#   flatpak run --command=sh --devel org.gnome.Sdk//51 \
+#     -c '/usr/lib/sdk/rust-stable/bin/rustc --version'
+#
+# That runtime also carries GTK 4.24 and GtkSourceView 5.21, comfortably past
+# the 4.12 and 5.10 this needs.
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.rust-stable
 
@@ -61,8 +73,20 @@ modules:
       - install -Dm755 target/release/f3note /app/bin/f3note
       - install -Dm644 packaging/io.github.f360c4.f3note.desktop
         /app/share/applications/io.github.f360c4.f3note.desktop
-      - install -Dm644 packaging/f3note.svg
-        /app/share/icons/hicolor/scalable/apps/io.github.f360c4.f3note.svg
+      # PNGs rather than the SVG, and the reason is worth recording because
+      # the failure is confusing. Flatpak validates every exported icon
+      # through gdk-pixbuf, and librsvg has dropped its gdk-pixbuf loader —
+      # so on a machine without it an SVG is rejected with "Format not
+      # recognized" at the very last step of the build, long after everything
+      # has compiled. GTK4 renders the same file perfectly well, because it
+      # uses librsvg directly rather than through gdk-pixbuf, which is why
+      # the SVG is still what a native install ships.
+      - install -Dm644 packaging/f3note-128.png
+        /app/share/icons/hicolor/128x128/apps/io.github.f360c4.f3note.png
+      - install -Dm644 packaging/f3note-256.png
+        /app/share/icons/hicolor/256x256/apps/io.github.f360c4.f3note.png
+      - install -Dm644 packaging/f3note-512.png
+        /app/share/icons/hicolor/512x512/apps/io.github.f360c4.f3note.png
       - install -Dm644 packaging/flatpak/io.github.f360c4.f3note.metainfo.xml
         /app/share/metainfo/io.github.f360c4.f3note.metainfo.xml
     sources:
