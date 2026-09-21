@@ -38,13 +38,8 @@ a "do you want to save?" prompt cannot help with.
 
 ## Install
 
-**Arch, Manjaro, Omarchy** — from the AUR:
-
-```sh
-yay -S f3note
-```
-
-**Anywhere with GTK 4.12 or newer** — build it:
+Clone it and build it. That is the supported route and the one that is tested
+on every push.
 
 ```sh
 git clone https://github.com/f360c4/f3note
@@ -57,24 +52,30 @@ install -Dm644 packaging/f3note.svg \
   ~/.local/share/icons/hicolor/scalable/apps/io.github.f360c4.f3note.svg
 ```
 
-| Distribution | Build dependencies |
-|---|---|
-| Arch | `pacman -S gtk4 gtksourceview5 rustup` |
-| Debian 13+, Ubuntu 24.04+ | `apt install libgtk-4-dev libgtksourceview-5-dev` |
-| Fedora | `dnf install gtk4-devel gtksourceview5-devel` |
-| Alpine 3.20+ | `apk add gtk4.0-dev gtksourceview5-dev` |
+You need **GTK 4.12+**, **GtkSourceView 5.10+** and **Rust 1.92+**. That last
+one is not a preference — the gtk-rs crates require it — and it is newer than
+several distributions ship, so `rustup` may be easier than your package
+manager's Rust.
 
-**Ubuntu 22.04, Debian 12, RHEL 9** — their GTK is too old to build against,
-so take the AppImage. Download it, make it executable, run it:
+| Distribution | Build dependencies | Works? |
+|---|---|---|
+| Arch, Manjaro, Omarchy | `pacman -S gtk4 gtksourceview5 rustup` | yes |
+| Fedora 39+ | `dnf install gtk4-devel gtksourceview5-devel` | yes |
+| Debian 13+ | `apt install libgtk-4-dev libgtksourceview-5-dev` | yes, with rustup |
+| Ubuntu 24.04+ | `apt install libgtk-4-dev libgtksourceview-5-dev` | yes, with rustup |
+| Alpine 3.20+ | `apk add gtk4.0-dev gtksourceview5-dev` | yes, with rustup |
+| openSUSE Leap 16+ | `zypper in gtk4-devel gtksourceview5-devel` | yes |
+| **Ubuntu 22.04, Debian 12, RHEL 9** | — | **no: GTK too old** |
 
-```sh
-chmod +x f3note-x86_64.AppImage
-./f3note-x86_64.AppImage notes.txt
-```
+There is an `.AppImage` on the [releases
+page](https://github.com/f360c4/f3note/releases). Be aware of what it is and
+is not: it needs glibc 2.39 or newer, because that is what the machine that
+builds it has. An AppImage is usually a way onto *older* systems, and this one
+is not — the systems old enough to need it are also too old to build it. It
+saves you installing a toolchain, nothing more.
 
-It carries its own GTK and needs nothing installed. `docs/PORTING.md` has the
-full matrix of which distributions take which route, and
-`scripts/build-appimage.sh` builds one yourself.
+Not packaged for any distribution yet. An AUR `PKGBUILD` is in `packaging/`
+and works, but has not been submitted.
 
 ## Keyboard
 

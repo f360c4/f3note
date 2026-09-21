@@ -94,7 +94,7 @@ jobs:
       - run: cargo deny check licenses
 
   msrv:
-    name: Oldest supported Rust
+    name: Declared minimum Rust
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -106,20 +106,34 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-4-dev libgtksourceview-5-dev
-      # Distribution toolchains lag badly — Debian 13 ships 1.85, Alpine 1.87.
-      # A build that only works on the newest Rust is a build packagers cannot
-      # ship.
+      # Checks that rust-version in Cargo.toml is true, rather than aspirational.
+      #
+      # It says 1.92 because the gtk-rs crates require it, and that is higher
+      # than several distributions ship: Debian 13 has 1.85, Alpine 3.22 has
+      # 1.87, Ubuntu 24.04 has 1.91. Building from source on those needs
+      # rustup. Wishing for a lower number does not make one possible; the
+      # honest response is to state it and let packagers plan around it.
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
-          toolchain: "1.85.0"
+          toolchain: "1.92.0"
       - run: cargo check --locked
 
   appimage:
     name: AppImage
-    runs-on: ubuntu-22.04
-    # Built on the oldest runner available: an AppImage bundles the glibc it
-    # was linked against, so building on a newer system produces one that
-    # refuses to start on older ones.
+    runs-on: ubuntu-24.04
+    # Not the oldest runner, though that was the intent and would be better.
+    #
+    # An AppImage is only useful on systems older than the one that built it,
+    # and it was meant to cover Ubuntu 22.04, Debian 12 and RHEL 9, whose GTK
+    # is too old to build f3note natively. But that is the same reason it
+    # cannot be built there: ubuntu-22.04 ships GTK 4.6 and the build fails
+    # outright. The oldest runner that can build this is ubuntu-24.04, whose
+    # glibc is 2.39 — higher than any of those three have.
+    #
+    # So this AppImage is a convenience for people who could also have built
+    # it, not a way onto older systems. Said plainly in the README rather than
+    # left to be discovered. Flatpak is the route that would actually work
+    # there, and is not built yet.
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:

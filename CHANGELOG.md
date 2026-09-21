@@ -53,3 +53,6 @@ First release.
   problem: 200 000 lines open in 370ms.
 - No split view, multiple cursors, plugins or LSP, by choice.
 - Linux and Wayland only.
+- Needs GTK 4.12, GtkSourceView 5.10 and Rust 1.92. Ubuntu 22.04, Debian 12
+  and RHEL 9 are too old and are not supported; a Flatpak would cover them and
+  does not exist yet.

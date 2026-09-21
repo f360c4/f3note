@@ -2,7 +2,10 @@
 name = "f3note"
 version = "1.0.0"
 edition = "2021"
-rust-version = "1.85"
+# 1.92 is not a preference. The gtk-rs family — cairo-rs, gdk-pixbuf and
+# nineteen others — requires it, so declaring anything lower is a claim the
+# dependency tree does not honour. CI checks this rather than trusting it.
+rust-version = "1.92"
 description = "A fast, minimal tabbed text editor for Wayland with crash-proof autosave"
 repository = "https://github.com/f360c4/f3note"
 license = "MIT"
