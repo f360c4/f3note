@@ -32,7 +32,7 @@ jobs:
     name: Build and test
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Without this, checkout leaves a token in .git/config that any
           # later step — including one added by a pull request — could use.
@@ -82,7 +82,7 @@ jobs:
     name: Dependency licences
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Without this, checkout leaves a token in .git/config that any
           # later step — including one added by a pull request — could use.
@@ -97,7 +97,7 @@ jobs:
     name: Oldest supported Rust
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Without this, checkout leaves a token in .git/config that any
           # later step — including one added by a pull request — could use.
@@ -121,7 +121,7 @@ jobs:
     # was linked against, so building on a newer system produces one that
     # refuses to start on older ones.
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Without this, checkout leaves a token in .git/config that any
           # later step — including one added by a pull request — could use.
