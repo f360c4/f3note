@@ -139,6 +139,7 @@ impl Window {
             popover: RefCell::new(None),
         });
 
+        this.clone().accept_dropped_files();
         this.clone().connect_signals();
         this.clone().install_actions(app);
         this.clone().follow_theme();
@@ -710,11 +711,15 @@ impl Window {
 
         // Wrapping is the expensive part on a pathological line: it forces the
         // widget to lay the whole line out to find break points.
-        view.set_wrap_mode(if reduced || !config.appearance.wrap {
-            gtk::WrapMode::None
-        } else {
+        let wrapping = !reduced && config.appearance.wrap;
+        view.set_wrap_mode(if wrapping {
             gtk::WrapMode::WordChar
+        } else {
+            gtk::WrapMode::None
         });
+        if wrapping {
+            Self::suppress_hyphens(buffer);
+        }
 
         buffer.set_highlight_matching_brackets(!reduced);
 
@@ -741,6 +746,48 @@ impl Window {
         } else {
             buffer.set_highlight_syntax(false);
         }
+    }
+
+    /// Stop Pango inserting a hyphen where it breaks inside a word.
+    ///
+    /// `WrapMode::WordChar` breaks mid-word when a word will not fit, and
+    /// Pango marks the break with an automatic hyphen. That is right for prose
+    /// and wrong for an editor: the character is not in the file. It looks
+    /// like part of the text, and in a URL, a path or an identifier it is
+    /// actively misleading about what is there.
+    ///
+    /// The alternative, `WrapMode::Word`, also inserts nothing but refuses to
+    /// break inside a word at all, so a long token runs off the edge and the
+    /// window grows a horizontal scrollbar. Suppressing the hyphen keeps the
+    /// wrapping and drops the invention.
+    ///
+    /// Only applied when wrapping is on, which means never on the files with
+    /// pathological lines, where tagging the whole buffer would cost.
+    fn suppress_hyphens(buffer: &sourceview5::Buffer) {
+        const TAG: &str = "f3note-no-hyphens";
+        let table = buffer.tag_table();
+        let tag = match table.lookup(TAG) {
+            Some(tag) => tag,
+            None => {
+                let tag = gtk::TextTag::builder()
+                    .name(TAG)
+                    .insert_hyphens(false)
+                    .build();
+                table.add(&tag);
+                tag
+            }
+        };
+        let (start, end) = buffer.bounds();
+        buffer.apply_tag(&tag, &start, &end);
+
+        // Text typed later is not covered by a tag applied now, so the tag is
+        // re-applied whenever the buffer changes. Cheap here because this only
+        // runs on documents whose lines are short enough to wrap.
+        let tag = tag.clone();
+        buffer.connect_changed(move |b| {
+            let (start, end) = b.bounds();
+            b.apply_tag(&tag, &start, &end);
+        });
     }
 
     fn announce_capabilities(self: &Rc<Self>, doc: &Rc<Document>) {
@@ -835,6 +882,42 @@ impl Window {
             glib::Propagation::Stop
         });
         view.add_controller(scroll);
+    }
+
+    /// Open files dragged onto the window.
+    ///
+    /// Worth having beyond convenience: f3note has no menu bar and no toolbar,
+    /// so Ctrl+O is the only way in and nothing on screen says so. Dropping a
+    /// file is what people try first, and it working means the editor is not
+    /// a dead end for anyone who has not read the manual.
+    ///
+    /// Both COPY and MOVE are accepted on purpose. A file manager may offer
+    /// either depending on modifiers, and a drop target that advertises only
+    /// COPY silently refuses drags that arrive proposing MOVE — which is what
+    /// a plain drag from some file managers does.
+    fn accept_dropped_files(self: Rc<Self>) {
+        let drop = gtk::DropTarget::new(
+            gdk::FileList::static_type(),
+            gdk::DragAction::COPY | gdk::DragAction::MOVE,
+        );
+        let this = self.clone();
+        drop.connect_drop(move |_, value, _, _| {
+            let Ok(list) = value.get::<gdk::FileList>() else {
+                return false;
+            };
+            let mut opened = false;
+            for file in list.files() {
+                if let Some(path) = file.path() {
+                    this.open_path(path);
+                    opened = true;
+                }
+            }
+            if opened {
+                this.window.present();
+            }
+            opened
+        });
+        self.window.add_controller(drop);
     }
 
     fn connect_signals(self: &Rc<Self>) {
@@ -1470,8 +1553,7 @@ impl Window {
             .child(&layout)
             .autohide(true)
             .build();
-        popover.set_parent(&self.window);
-        popover.add_css_class("f3note-switcher");
+        self.anchor_popover(&popover);
 
         // Candidates start in most-recently-used order, so an empty query
         // already shows the tab you most likely want.
@@ -1528,6 +1610,15 @@ impl Window {
 
         let refill_cb = refill.clone();
         entry.connect_search_changed(move |e| refill_cb(e.text().as_str()));
+
+        // GtkSearchEntry consumes Escape to emit `stop-search`, so a key
+        // controller on the popover never sees it and the switcher could only
+        // be dismissed by clicking away. Connecting the signal the widget
+        // actually emits is the way to hear it. The go-to-line popover uses a
+        // plain GtkEntry, which does not consume Escape — which is exactly why
+        // that one closed and this one did not.
+        let popover_ref = popover.clone();
+        entry.connect_stop_search(move |_| popover_ref.popdown());
 
         let activate = {
             let this = self.clone();
@@ -1785,6 +1876,47 @@ impl Window {
 
     pub fn open_switcher_for_test(self: &Rc<Self>) {
         self.open_switcher();
+    }
+
+    pub fn popover_is_open_for_test(&self) -> bool {
+        self.popover
+            .borrow()
+            .as_ref()
+            .map(|p| p.is_visible())
+            .unwrap_or(false)
+    }
+
+    /// Fire what pressing Escape in the switcher fires.
+    ///
+    /// GtkSearchEntry turns the key into `stop-search` and consumes it, so a
+    /// test cannot reach the behaviour through a key controller any more than
+    /// the popover could. Emitting the signal exercises the same path the key
+    /// takes.
+    pub fn switcher_escape_for_test(&self) -> bool {
+        fn find_entry(widget: &gtk::Widget) -> Option<gtk::SearchEntry> {
+            if let Ok(entry) = widget.clone().downcast::<gtk::SearchEntry>() {
+                return Some(entry);
+            }
+            let mut child = widget.first_child();
+            while let Some(w) = child {
+                if let Some(found) = find_entry(&w) {
+                    return Some(found);
+                }
+                child = w.next_sibling();
+            }
+            None
+        }
+
+        let popover = self.popover.borrow().clone();
+        let Some(popover) = popover else { return false };
+        let Some(child) = popover.child() else {
+            return false;
+        };
+        let Some(entry) = find_entry(&child) else {
+            return false;
+        };
+        entry.emit_by_name::<()>("stop-search", &[]);
+        true
     }
 
     pub fn find_step_for_test(self: &Rc<Self>, forward: bool) {

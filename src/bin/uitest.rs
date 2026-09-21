@@ -286,6 +286,21 @@ fn run(window: Rc<Window>) {
         window.open_switcher_for_test();
     }
 
+    println!("Escape closes the tab switcher");
+    window.open_switcher_for_test();
+    check!(
+        window.popover_is_open_for_test(),
+        "the switcher should be on screen"
+    );
+    check!(
+        window.switcher_escape_for_test(),
+        "could not reach the switcher's entry"
+    );
+    check!(
+        !window.popover_is_open_for_test(),
+        "Escape must dismiss the switcher, not only clicking away"
+    );
+
     println!("tab switcher popover");
     // GDK may log "Tried to map a grabbing popup with a non-top most parent"
     // here. That is this environment, not a defect: an autohide popover takes
