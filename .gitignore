@@ -1,0 +1,9 @@
+/target
+**/*.rs.bk
+*.pdb
+/dist
+/build
+
+# Contexto local, fora do remoto
+CLAUDE.md
+.claude/
