@@ -1,13 +1,19 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- f3note. A sheet with a tab, drawn with currentColor so it reads on any
-     background, and no gradients or shadows so it stays legible at 16px. -->
+<!-- f3note.
+     Two tabs over a sheet of text: the whole of what this editor is. The
+     shapes are deliberately few and chunky, because the size that matters is
+     24px in a launcher, not 128px in a README — three thinner tabs and three
+     text lines both blurred into noise when tested there.
+     The dark rounded square is what keeps it legible on a light desktop as
+     well as a dark one. -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <g fill="none" stroke="#7aa2f7" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round">
-    <!-- the tab -->
-    <path d="M12 12 h18 v7 H12 z" fill="#7aa2f7" stroke="none"/>
-    <!-- the sheet -->
-    <path d="M10 19 h44 v33 a2 2 0 0 1 -2 2 H12 a2 2 0 0 1 -2 -2 z"/>
-    <!-- lines of text, the last one short -->
-    <path d="M18 29 h28 M18 37 h28 M18 45 h16" stroke-width="3" opacity="0.75"/>
-  </g>
+  <rect width="64" height="64" rx="14" fill="#1a1b26"/>
+  <!-- the inactive tab, and the active one in the accent colour -->
+  <rect x="8" y="14" width="21" height="10" rx="2.5" fill="#3b4261"/>
+  <rect x="31" y="14" width="25" height="10" rx="2.5" fill="#7aa2f7"/>
+  <!-- the page -->
+  <rect x="8" y="24" width="48" height="34" rx="4" fill="#2a2f45"/>
+  <!-- two lines of text, the second short, which is what reads as prose -->
+  <rect x="16" y="34" width="32" height="5" rx="2.5" fill="#c0caf5"/>
+  <rect x="16" y="44" width="20" height="5" rx="2.5" fill="#8b93b8"/>
 </svg>

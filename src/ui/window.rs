@@ -944,17 +944,27 @@ impl Window {
             let Ok(list) = value.get::<gdk::FileList>() else {
                 return false;
             };
-            let mut opened = false;
-            for file in list.files() {
-                if let Some(path) = file.path() {
+            let paths: Vec<std::path::PathBuf> =
+                list.files().iter().filter_map(|f| f.path()).collect();
+            if paths.is_empty() {
+                return false;
+            }
+
+            // Opening is deferred by one turn of the main loop, and that is
+            // not incidental. GTK finishes a drop by returning focus to the
+            // widget that received it — the view of the tab the file was
+            // dropped on — and GtkNotebook follows focus to the page that
+            // widget lives in. Selecting the new tab during the drop is
+            // therefore undone a moment later, which looked like the file
+            // opening and then jumping back to the first tab.
+            let this = this.clone();
+            glib::idle_add_local_once(move || {
+                for path in paths {
                     this.open_path(path);
-                    opened = true;
                 }
-            }
-            if opened {
                 this.window.present();
-            }
-            opened
+            });
+            true
         });
         drop
     }
