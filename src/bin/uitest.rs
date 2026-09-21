@@ -1,0 +1,180 @@
+//! Exercises the window the way a person does.
+//!
+//! This exists because the unit tests did not catch a panic that happened on
+//! the very first tab anyone closed. They covered the logic thoroughly and the
+//! GTK glue not at all, and the glue is where the interesting failures live:
+//! signals that re-enter, borrows held across a call that takes the same
+//! RefCell, widgets touched after being removed.
+//!
+//! Every step here is something a user does in the first minute. A panic
+//! aborts the process, so finishing at all is the pass condition; the checks
+//! along the way catch the quieter kind of wrong, where nothing crashes but
+//! the tab list and the notebook stop agreeing.
+
+use std::path::PathBuf;
+use std::rc::Rc;
+
+use gtk::glib;
+use gtk::prelude::*;
+
+use f3note::config::Config;
+use f3note::theme::ThemeEngine;
+use f3note::ui::window::Window;
+
+macro_rules! check {
+    ($condition:expr, $($arg:tt)*) => {
+        if !$condition {
+            println!("FAIL: {}", format!($($arg)*));
+            std::process::exit(1);
+        }
+    };
+}
+
+fn main() -> glib::ExitCode {
+    std::env::set_var("GSK_RENDERER", "cairo");
+
+    let app = gtk::Application::builder()
+        .application_id("io.github.f360c4.f3note.uitest")
+        .flags(gtk::gio::ApplicationFlags::NON_UNIQUE)
+        .build();
+
+    app.connect_activate(|app| {
+        let (config, _) = Config::load();
+        let engine = ThemeEngine::new(config);
+        let window = Window::new(app, engine);
+        window.window.present();
+
+        // One turn of the main loop first, so the window is realised before
+        // anything starts poking at it.
+        let window = window.clone();
+        glib::timeout_add_local_once(std::time::Duration::from_millis(400), move || {
+            run(window);
+        });
+    });
+
+    app.run_with_args::<&str>(&[])
+}
+
+fn scratch_files(count: usize) -> (PathBuf, Vec<PathBuf>) {
+    let dir = std::env::temp_dir().join(format!("f3note-uitest-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let files = (0..count)
+        .map(|i| {
+            let p = dir.join(format!("file{i}.txt"));
+            std::fs::write(&p, format!("contents of file {i}\nsecond line\n")).unwrap();
+            p
+        })
+        .collect();
+    (dir, files)
+}
+
+fn run(window: Rc<Window>) {
+    let (dir, files) = scratch_files(6);
+
+    println!("opening {} files", files.len());
+    for path in &files {
+        window.open_path(path.clone());
+    }
+    check!(
+        window.tab_count() == files.len(),
+        "expected {} tabs, found {}",
+        files.len(),
+        window.tab_count()
+    );
+    println!("  {} tabs open", window.tab_count());
+
+    // This is the exact step that panicked: closing a tab while others remain
+    // makes the editor pick the most recently used one to move to.
+    println!("closing the current tab");
+    window.close_current_tab();
+    check!(window.tab_count() == 5, "tab was not removed");
+    check!(
+        window.current_document().is_some(),
+        "no tab became current after closing one"
+    );
+    println!("  now on: {}", window.current_document().unwrap().title());
+
+    println!("switching between tabs");
+    for index in [0usize, 3, 1, 4, 2] {
+        window.select_tab_for_test(index);
+        let current = window.current_document().expect("a current document");
+        println!("  tab {index} -> {}", current.title());
+    }
+
+    println!("cycling with Ctrl+Tab");
+    for _ in 0..4 {
+        window.cycle_tab_for_test(1);
+        check!(
+            window.current_document().is_some(),
+            "cycling left no current document"
+        );
+    }
+    window.cycle_tab_for_test(-1);
+
+    println!("opening a file that is already open");
+    let before = window.tab_count();
+    window.open_path(files[0].clone());
+    check!(
+        window.tab_count() == before,
+        "reopening a file should focus its tab, not duplicate it"
+    );
+
+    println!("new untitled tabs");
+    window.new_untitled();
+    window.new_untitled();
+    check!(window.tab_count() == before + 2, "new tabs were not added");
+
+    println!("closing every tab, one at a time");
+    for _ in 0..(before + 2) {
+        window.close_current_tab();
+        check!(
+            window.current_document().is_some(),
+            "closing a tab left the window with no document"
+        );
+    }
+    // Closing the last tab leaves an empty one rather than closing the window.
+    check!(
+        window.tab_count() == 1,
+        "expected one empty tab left, found {}",
+        window.tab_count()
+    );
+    let last = window.current_document().unwrap();
+    check!(
+        last.path().is_none(),
+        "the surviving tab should be a fresh untitled one, got {}",
+        last.describe()
+    );
+    println!("  left with: {}", last.title());
+
+    println!("closing the last tab again");
+    window.close_current_tab();
+    check!(
+        window.tab_count() == 1 && window.current_document().is_some(),
+        "closing the last tab must leave an empty one, not nothing"
+    );
+
+    println!("close and forget");
+    window.open_path(files[1].clone());
+    window.close_and_forget();
+    check!(
+        window.current_document().is_some(),
+        "close and forget left no document"
+    );
+
+    println!("find bar");
+    window.open_find_for_test(false);
+    window.open_find_for_test(true);
+
+    println!("zoom");
+    for _ in 0..3 {
+        window.zoom_for_test(1);
+    }
+    for _ in 0..8 {
+        window.zoom_for_test(-1);
+    }
+
+    let _ = std::fs::remove_dir_all(dir);
+    println!("PASS: the window survived everything a first minute throws at it");
+    std::process::exit(0);
+}

@@ -255,7 +255,10 @@ impl Window {
     // ------------------------------------------------------------- session
 
     fn save_session(self: &Rc<Self>) {
-        let docs = self.docs.borrow();
+        // Cloned rather than borrowed for the whole loop: holding a borrow
+        // across this much code is how the tab-closing panic happened, and the
+        // clone is a handful of reference-count bumps.
+        let docs = self.docs.borrow().clone();
         let mut session = Session {
             version: crate::session::index::VERSION,
             documents: Vec::with_capacity(docs.len()),
@@ -286,7 +289,6 @@ impl Window {
                 session.documents.push(entry);
             }
         }
-        drop(docs);
 
         if let Err(e) = session.save(&self.state_root) {
             eprintln!("f3note: could not write the session: {e}");
@@ -484,8 +486,7 @@ impl Window {
 
         self.session_dirty.set(true);
         if focus {
-            self.notebook.set_current_page(Some(index));
-            self.activate_document(index as usize);
+            self.select_tab(index as usize);
         }
     }
 
@@ -505,8 +506,7 @@ impl Window {
             .iter()
             .position(|d| d.path().map(|p| p == canonical).unwrap_or(false));
         if let Some(index) = existing {
-            self.notebook.set_current_page(Some(index as u32));
-            self.activate_document(index);
+            self.select_tab(index);
             return;
         }
 
@@ -542,11 +542,16 @@ impl Window {
 
         // Move to whatever was used most recently rather than to the tab that
         // happens to be at the same index.
-        if let Some(next) = self.mru.borrow().front() {
-            if let Some(i) = self.index_of(next) {
-                self.notebook.set_current_page(Some(i as u32));
-                self.activate_document(i);
-            }
+        //
+        // The borrow is read into a local first, deliberately. Writing this as
+        // `if let Some(next) = self.mru.borrow().front()` keeps the guard alive
+        // for the whole block — an `if let` scrutinee is not a terminating
+        // scope the way an `if` condition is — and the activation below takes
+        // the same RefCell mutably. That exact shape panicked on closing a tab.
+        let next = self.mru.borrow().front();
+        let target = next.and_then(|id| self.index_of(id));
+        if let Some(index) = target {
+            self.select_tab(index);
         }
     }
 
@@ -839,6 +844,23 @@ impl Window {
         self.window.add_controller(keys);
     }
 
+    /// Make a tab current and activate it exactly once.
+    ///
+    /// `set_current_page` emits `switch-page`, which activates the document on
+    /// its own. Calling `activate_document` alongside it would do the work
+    /// twice, so the signal is suppressed and the activation made explicit —
+    /// that also covers the case where the page is already current and no
+    /// signal would fire at all.
+    fn select_tab(self: &Rc<Self>, index: usize) {
+        if index >= self.docs.borrow().len() {
+            return;
+        }
+        self.suppress_switch.set(true);
+        self.notebook.set_current_page(Some(index as u32));
+        self.suppress_switch.set(false);
+        self.activate_document(index);
+    }
+
     /// Called whenever a different tab becomes current.
     fn activate_document(self: &Rc<Self>, index: usize) {
         let Some(doc) = self.document_at(index) else {
@@ -977,10 +999,8 @@ impl Window {
                 mru.nth(mru.len() - 1)
             }
         };
-        if let Some(id) = target {
-            if let Some(index) = self.index_of(id) {
-                self.notebook.set_current_page(Some(index as u32));
-            }
+        if let Some(index) = target.and_then(|id| self.index_of(id)) {
+            self.select_tab(index);
         }
     }
 
@@ -1382,7 +1402,7 @@ impl Window {
                 if let Some(id) = id {
                     let id = unsafe { *id.as_ref() };
                     if let Some(index) = this.index_of(id) {
-                        this.notebook.set_current_page(Some(index as u32));
+                        this.select_tab(index);
                     }
                 }
                 popover.popdown();
@@ -1427,9 +1447,7 @@ impl Window {
     }
 
     fn goto_tab_index(self: &Rc<Self>, index: usize) {
-        if index < self.docs.borrow().len() {
-            self.notebook.set_current_page(Some(index as u32));
-        }
+        self.select_tab(index);
     }
 
     // -------------------------------------------------- find next/previous
@@ -1493,6 +1511,39 @@ impl Window {
             let _ = context.replace(&mut start, &mut end, replacement.as_str());
         }
         self.find_step(true);
+    }
+
+    // ---------------------------------------------------- test entry points
+    //
+    // The window drives itself from signals and actions, which a test cannot
+    // press. These expose the same operations directly so `src/bin/uitest.rs`
+    // can exercise the real widget tree — the layer where the panic on closing
+    // a tab lived, and which the unit tests could not reach.
+
+    pub fn tab_count(&self) -> usize {
+        self.docs.borrow().len()
+    }
+
+    pub fn close_current_tab(self: &Rc<Self>) {
+        if let Some(doc) = self.current_document() {
+            self.close_document(doc.id);
+        }
+    }
+
+    pub fn select_tab_for_test(self: &Rc<Self>, index: usize) {
+        self.select_tab(index);
+    }
+
+    pub fn cycle_tab_for_test(self: &Rc<Self>, direction: i32) {
+        self.cycle_tab(direction);
+    }
+
+    pub fn open_find_for_test(self: &Rc<Self>, with_replace: bool) {
+        self.open_find(with_replace);
+    }
+
+    pub fn zoom_for_test(&self, delta: i32) {
+        self.bump_zoom(delta);
     }
 
     fn open_find(self: &Rc<Self>, with_replace: bool) {

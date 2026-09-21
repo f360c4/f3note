@@ -61,7 +61,9 @@ Needs GTK 4.12 or newer and GtkSourceView 5.10 or newer. See
 which need the AppImage instead.
 
 ```sh
+./scripts/test.sh       # everything below, in one go
 cargo test              # logic tests, no display required
+./target/release/uitest # drives the real window: tabs, switching, closing
 ./scripts/crashtest.sh  # end-to-end: edit, SIGKILL, recover
 ```
 
