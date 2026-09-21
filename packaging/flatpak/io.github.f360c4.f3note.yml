@@ -1,0 +1,74 @@
+# Flatpak build for f3note.
+#
+# This is the route onto the distributions that cannot run f3note any other
+# way — Ubuntu 22.04, Debian 12, RHEL 9 — because the GNOME runtime supplies
+# GTK and GtkSourceView regardless of what the host has. Neither a native
+# build nor the AppImage can do that: both need the host's libraries to be
+# new enough, and on those systems they are not.
+app-id: io.github.f360c4.f3note
+runtime: org.gnome.Platform
+runtime-version: '47'
+sdk: org.gnome.Sdk
+
+# Rust is not in the runtime; it comes from an SDK extension used only at
+# build time.
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+
+command: f3note
+
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  env:
+    CARGO_HOME: /run/build/f3note/cargo
+
+finish-args:
+  # Wayland, with X11 as a fallback so the sandbox does not simply fail on a
+  # session that has no Wayland.
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --device=dri
+
+  # A text editor's whole job is other people's files. The portal alone is not
+  # enough: f3note is opened from a terminal with a path argument, and a
+  # sandbox that can only see what a file chooser handed it cannot do that.
+  - --filesystem=host
+
+  # No network. f3note does not make a single request, and saying so here
+  # means it cannot start.
+
+  # The theme cascade reads Omarchy's palette from the host, read-only.
+  - --filesystem=xdg-data/omarchy:ro
+  - --filesystem=~/.local/state/omarchy:ro
+
+  # Fonts and icons from the host, so it looks like the rest of the desktop
+  # rather than like a sandbox.
+  - --filesystem=xdg-config/fontconfig:ro
+  - --filesystem=~/.local/share/fonts:ro
+  - --filesystem=xdg-config/gtk-4.0:ro
+
+modules:
+  - name: f3note
+    buildsystem: simple
+    build-options:
+      env:
+        CARGO_NET_OFFLINE: 'true'
+    build-commands:
+      # --offline against the vendored crates: the build has no network, and
+      # the checksums come from the committed Cargo.lock.
+      - cargo --offline build --release --bin f3note
+      - install -Dm755 target/release/f3note /app/bin/f3note
+      - install -Dm644 packaging/io.github.f360c4.f3note.desktop
+        /app/share/applications/io.github.f360c4.f3note.desktop
+      - install -Dm644 packaging/f3note.svg
+        /app/share/icons/hicolor/scalable/apps/io.github.f360c4.f3note.svg
+      - install -Dm644 packaging/flatpak/io.github.f360c4.f3note.metainfo.xml
+        /app/share/metainfo/io.github.f360c4.f3note.metainfo.xml
+    sources:
+      - type: dir
+        path: ../..
+        skip:
+          - target
+          - .git
+      - cargo-sources.json

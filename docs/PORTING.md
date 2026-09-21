@@ -41,8 +41,17 @@ So the AppImage is a convenience for people who could also have compiled it.
 It is not a route onto older systems, and the README says so.
 
 What would actually work there is a **Flatpak**: the GNOME runtime supplies
-GTK and its dependencies regardless of what the host has. That is the right
-next step for these three, and it is not built yet.
+GTK and its dependencies regardless of what the host has.
+
+A manifest exists — `packaging/flatpak/` — and `scripts/build-flatpak.sh`
+builds it. **It has never been built or run.** The machine this was written on
+does not have flatpak installed, and a manifest that has not been through
+flatpak-builder is a plan rather than a package. Two things in particular are
+unverified: whether `org.freedesktop.Sdk.Extension.rust-stable` carries Rust
+1.92 or newer, and whether the sandbox's filesystem permissions are enough for
+the theme cascade to find an Omarchy palette on the host.
+
+Until someone builds it, these three distributions have no route.
 
 ## Rust version
 

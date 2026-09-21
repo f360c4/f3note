@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.f360c4.f3note</id>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+
+  <name>f3note</name>
+  <summary>The text editor that does not lose your work</summary>
+
+  <description>
+    <p>
+      Windows Notepad's simplicity and Notepad++'s tabs, for Wayland, opening
+      in about 150ms. The speed is a consequence of keeping it small; not
+      losing your work is the point.
+    </p>
+    <p>
+      Every buffer is mirrored to disk continuously, including unnamed scratch
+      tabs, so the most an abrupt shutdown can cost is a few seconds of
+      typing. There is no "do you want to save?" dialog, because there is
+      nothing to ask about. Versions are kept as you work, so an edit you
+      regret an hour ago and already saved is still recoverable.
+    </p>
+    <p>Other things it does:</p>
+    <ul>
+      <li>Tabs, with most-recently-used switching and jump-by-typing</li>
+      <li>Named sessions: save sets of tabs and switch between them</li>
+      <li>Inline find and replace, and search across your tabs and folder</li>
+      <li>Follows the desktop palette live, without restarting</li>
+      <li>Opening a file from a terminal lands it as a tab in the open window</li>
+    </ul>
+    <p>
+      What it deliberately does not do: split view, multiple cursors, plugins,
+      or LSP. Those belong to editors that are better at them.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">io.github.f360c4.f3note.desktop</launchable>
+  <url type="homepage">https://github.com/f360c4/f3note</url>
+  <url type="bugtracker">https://github.com/f360c4/f3note/issues</url>
+  <url type="vcs-browser">https://github.com/f360c4/f3note</url>
+
+  <developer id="io.github.f360c4">
+    <name>Luiz Felipe - F360c4</name>
+  </developer>
+
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="1.0.1" date="2026-09-21">
+      <description>
+        <p>Packaging only; the editor is unchanged.</p>
+      </description>
+    </release>
+    <release version="1.0.0" date="2026-09-21">
+      <description>
+        <p>First release.</p>
+      </description>
+    </release>
+  </releases>
+</component>
