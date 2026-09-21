@@ -573,7 +573,8 @@ impl Window {
         buffer.set_enable_undo(true);
         buffer.set_highlight_matching_brackets(false);
 
-        let loaded = match doc.load() {
+        let long_line_chars = self.engine.config().appearance.long_line_chars;
+        let loaded = match doc.load(long_line_chars) {
             Ok(l) => Some(l),
             Err(e) => {
                 self.banner
@@ -591,7 +592,7 @@ impl Window {
             let store = DocStore::new(&self.state_root, &doc.store_key());
             match store.read_mirror() {
                 Some(bytes) => {
-                    let mut from_mirror = crate::text::decode(&bytes);
+                    let mut from_mirror = crate::text::decode_with_limit(&bytes, long_line_chars);
                     // Size and line-length limits still apply to recovered
                     // contents; a pathological file does not become safe
                     // because it came back from a mirror.
@@ -831,10 +832,7 @@ impl Window {
             let shift = state.contains(gdk::ModifierType::SHIFT_MASK);
             match key {
                 gdk::Key::Escape if this.findbar.is_open() => {
-                    this.findbar.close();
-                    if let Some(view) = this.current_view() {
-                        view.grab_focus();
-                    }
+                    this.close_find();
                     glib::Propagation::Stop
                 }
                 // Tab is focus navigation in GTK, so Ctrl+Tab has to be taken
@@ -920,7 +918,7 @@ impl Window {
             let iter = buffer.iter_at_mark(&buffer.get_insert());
             iter.offset()
         };
-        match doc.load() {
+        match doc.load(self.engine.config().appearance.long_line_chars) {
             Ok(loaded) => {
                 buffer.begin_irreversible_action();
                 buffer.set_text(&loaded.text);
@@ -1110,6 +1108,18 @@ impl Window {
     }
 
     fn connect_findbar(self: &Rc<Self>) {
+        // GtkSearchEntry turns Escape into `stop-search`. Handling that signal
+        // is more reliable than racing the entry for the key event, and it
+        // also covers the entry's own clear button.
+        let this = self.clone();
+        self.findbar
+            .query
+            .connect_stop_search(move |_| this.close_find());
+        let this = self.clone();
+        self.findbar
+            .replacement
+            .connect_activate(move |_| this.replace_current(false));
+
         let this = self.clone();
         self.findbar.query.connect_search_changed(move |_| {
             this.run_search();
@@ -1289,6 +1299,27 @@ impl Window {
             .unwrap_or(false)
     }
 
+    /// Close a popover on Escape without relying on the implicit grab.
+    ///
+    /// An autohide popover is supposed to take a grab and handle Escape and
+    /// clicking away itself. When the grab is refused — which GDK reports as
+    /// "Tried to map a grabbing popup with a non-top most parent" — neither
+    /// works and the popover is stuck on screen with no way out. Handling the
+    /// key directly means Escape closes it either way.
+    fn escape_closes(popover: &gtk::Popover) {
+        let keys = gtk::EventControllerKey::new();
+        keys.set_propagation_phase(gtk::PropagationPhase::Capture);
+        let popover_ref = popover.clone();
+        keys.connect_key_pressed(move |_, key, _, _| {
+            if key == gdk::Key::Escape {
+                popover_ref.popdown();
+                return glib::Propagation::Stop;
+            }
+            glib::Propagation::Proceed
+        });
+        popover.add_controller(keys);
+    }
+
     fn anchor_popover(&self, popover: &gtk::Popover) {
         // Only one popover at a time. Pressing Ctrl+P while the go-to-line box
         // is open is a normal thing to do, and stacking a second grabbing
@@ -1311,6 +1342,7 @@ impl Window {
         let width = self.notebook.width().max(1);
         popover.set_pointing_to(Some(&gdk::Rectangle::new(width / 2, 0, 1, 1)));
         popover.add_css_class("f3note-switcher");
+        Self::escape_closes(popover);
     }
 
     fn goto_line(self: &Rc<Self>) {
@@ -1352,11 +1384,20 @@ impl Window {
         if self.popover_is(popover) {
             self.set_popover(None);
         }
-        // `closed` can arrive more than once, and a popover that was replaced
-        // before it ever opened may have been unparented already.
-        if popover.parent().is_some() {
-            popover.unparent();
-        }
+        // Unparenting is deferred by one main-loop turn on purpose. GTK is
+        // still finishing the close when `closed` runs: it goes on to restore
+        // focus to whatever had it before, which needs the popover's root.
+        // Unparenting here leaves it rootless mid-sequence, and GTK reports
+        // "gtk_window_get_focus: assertion GTK_IS_WINDOW (window) failed"
+        // followed by a failed ancestor check. Letting the turn finish first
+        // costs nothing and keeps focus handling intact — which is what makes
+        // Escape and clicking away work.
+        let popover = popover.clone();
+        glib::idle_add_local_once(move || {
+            if popover.parent().is_some() {
+                popover.unparent();
+            }
+        });
     }
 
     fn jump_to_line(self: &Rc<Self>, line: i32) {
@@ -1642,6 +1683,43 @@ impl Window {
         self.open_find(with_replace);
     }
 
+    pub fn force_capabilities_for_test(self: &Rc<Self>) {
+        if let Some(doc) = self.current_document() {
+            self.force_capabilities(doc.id);
+        }
+    }
+
+    pub fn scroll_to_end_for_test(self: &Rc<Self>) {
+        if let Some(buffer) = self.current_document().and_then(|d| d.buffer()) {
+            let end = buffer.end_iter();
+            buffer.place_cursor(&end);
+            if let Some(view) = self.current_view() {
+                view.scroll_to_mark(&buffer.get_insert(), 0.0, true, 0.0, 0.0);
+            }
+        }
+    }
+
+    /// Step the caret along the current line, forcing the view to work out an
+    /// x position at many points — which is what horizontal scrolling and
+    /// clicking around in a long line do.
+    pub fn walk_caret_for_test(self: &Rc<Self>, steps: i32) {
+        let Some(buffer) = self.current_document().and_then(|d| d.buffer()) else {
+            return;
+        };
+        let total = buffer.char_count();
+        if total == 0 {
+            return;
+        }
+        for step in 0..steps {
+            let offset = (total / steps.max(1)) * step;
+            let iter = buffer.iter_at_offset(offset);
+            buffer.place_cursor(&iter);
+            if let Some(view) = self.current_view() {
+                view.scroll_to_mark(&buffer.get_insert(), 0.0, true, 0.0, 0.0);
+            }
+        }
+    }
+
     pub fn zoom_for_test(&self, delta: i32) {
         self.bump_zoom(delta);
     }
@@ -1676,6 +1754,17 @@ impl Window {
 
     pub fn set_replacement_for_test(&self, text: &str) {
         self.findbar.replacement.set_text(text);
+    }
+
+    /// Close the find bar and put the caret back in the document.
+    pub fn close_find(self: &Rc<Self>) {
+        if !self.findbar.is_open() {
+            return;
+        }
+        self.findbar.close();
+        if let Some(view) = self.current_view() {
+            view.grab_focus();
+        }
     }
 
     fn open_find(self: &Rc<Self>, with_replace: bool) {

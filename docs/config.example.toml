@@ -31,6 +31,24 @@ syntax_highlighting = false
 
 highlight_current_line = false
 
+# Longest line, in characters, before f3note turns off wrapping and
+# highlighting and warns that navigating the file will stutter.
+#
+# This is about line *length*, not file size. 200 000 lines and 11 MB open in
+# 370ms and navigate in 8ms, because only the lines on screen are laid out.
+# A single enormous line has no such defence: GtkTextView builds one layout
+# per logical line, entire, so finding the caret's column means shaping the
+# whole line. Measured cost of moving the caret, per keystroke:
+#
+#     500 chars     2 ms       8 000 chars    18 ms
+#   2 000 chars     5 ms      16 000 chars    20 ms
+#   5 000 chars    12 ms      36 000 chars    44 ms
+#
+# A frame at 60Hz is 16ms, so the default sits at the last point that still
+# fits inside one. Raise it if your machine is quicker than the one this was
+# measured on; you will simply be warned later.
+long_line_chars = 5000
+
 # "auto" follows the system: Omarchy's current theme if present, otherwise the
 # user's ~/.config/f3note/theme.toml, otherwise the desktop light/dark
 # preference. "dark" or "light" stop following anything and use the built-in

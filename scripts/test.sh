@@ -33,10 +33,27 @@ else
 fi
 
 step "window survives normal use"
+# G_DEBUG=fatal-criticals turns a GTK critical into an abort. A critical means
+# GTK was handed something it should never have been handed; letting the suite
+# pass while printing them is how a broken popover teardown survived into a
+# user's hands.
 ROOT=$(mktemp -d /tmp/f3note-uitest-XXXXXX)
 XDG_STATE_HOME=$ROOT/state XDG_CONFIG_HOME=$ROOT/config XDG_DATA_HOME=$ROOT/data \
-  ./target/release/uitest 2>&1 | tail -2
+  G_DEBUG=fatal-criticals ./target/release/uitest 2>&1 | tail -2
 result ${PIPESTATUS[0]}
+rm -rf "$ROOT"
+
+step "long lines stay within the documented limit"
+# The editor promises that a line at the configured limit still moves the
+# caret inside one frame. This is the measurement that promise rests on.
+ROOT=$(mktemp -d /tmp/f3note-stall-XXXXXX)
+LINE=$ROOT/line.css
+python3 -c "u='body{margin:0;padding:0}'; open('$LINE','w').write((u*300)[:5000])"
+STALL=$(XDG_STATE_HOME=$ROOT/state XDG_CONFIG_HOME=$ROOT/config XDG_DATA_HOME=$ROOT/data \
+  F3NOTE_STALL_QUICK=1 ./target/release/stallcheck "$LINE" 2>&1 |
+  grep -oE "worst stall: [0-9]+" | grep -oE "[0-9]+$")
+echo "  5000-char line: ${STALL:-?}ms for 40 caret moves"
+[ -n "${STALL:-}" ] && [ "$STALL" -lt 600 ]; result $?
 rm -rf "$ROOT"
 
 step "work survives losing power"

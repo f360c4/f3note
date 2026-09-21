@@ -17,9 +17,11 @@ specific to them and runs on any desktop.
   you already have open, instead of spawning a second process.
 - **Follows your theme.** Reads the palette your system already defines and
   recolors live when you switch themes — no restart, no lost tabs.
-- **Honest about limits.** Files with very long lines (minified CSS, single-line
-  JSON dumps) would freeze the text widget, so f3note detects them, turns off
-  highlighting and wrapping, and tells you it did.
+- **Honest about limits.** Line *count* is not a problem: 200 000 lines and
+  11 MB open in 370ms and scroll smoothly. A single enormous line is — GTK lays
+  out a whole logical line at once — so minified CSS and single-line JSON make
+  the cursor stutter. f3note detects those, turns off what it can, and says so
+  plainly instead of pretending it fixed it.
 
 ## Keyboard
 

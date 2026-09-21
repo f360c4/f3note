@@ -17,8 +17,32 @@
 
 use std::path::Path;
 
-/// Longest line, in characters, before wrapping and highlighting are dropped.
-pub const LONG_LINE_CHARS: usize = 10_000;
+/// Longest line, in characters, before the editor drops wrapping and
+/// highlighting and says so.
+///
+/// Chosen from measurement rather than taste. GtkTextView builds one
+/// PangoLayout per logical line, entire, however little of it is on screen, so
+/// finding the caret's x position means shaping the whole line. Cost of moving
+/// the caret along one line, measured on the reference machine:
+///
+/// ```text
+///    500 chars    2 ms per move
+///  1 000 chars    3 ms
+///  2 000 chars    5 ms
+///  4 000 chars    9 ms
+///  8 000 chars   18 ms
+/// 16 000 chars   20 ms
+/// 36 000 chars   44 ms
+/// ```
+///
+/// A frame at 60Hz is 16ms, so the stutter becomes visible somewhere around
+/// 8 000. The limit sits below that, at the last point where moving the caret
+/// is comfortably within one frame.
+///
+/// Note this is about line *length*, not file size or line count: 200 000
+/// lines and 11 MB open in 370ms and navigate in 8ms, because only the visible
+/// lines are laid out. It is a single enormous line that has no defence.
+pub const LONG_LINE_CHARS: usize = 5_000;
 
 /// File size, in bytes, before wrapping and highlighting are dropped.
 pub const BIG_FILE_BYTES: u64 = 50 * 1024 * 1024;
@@ -58,12 +82,20 @@ pub enum LargeFileReason {
 }
 
 impl LargeFileReason {
-    /// The message shown in the banner. Deliberately says which limit was hit:
-    /// "large file" on a 117 KB stylesheet would just be confusing.
+    /// The message shown in the banner.
+    ///
+    /// It says which limit was hit, because "large file" on a 36 KB stylesheet
+    /// would only confuse. And for long lines it promises nothing it cannot
+    /// deliver: turning off highlighting and wrapping roughly halves the cost,
+    /// but moving the caret along a 36 000-character line still takes tens of
+    /// milliseconds and there is no setting that changes that. Saying
+    /// "highlighting and wrapping are off" implied the problem was handled.
+    /// It is not, and the user is better served by knowing.
     pub fn message(self) -> String {
         match self {
             LargeFileReason::LongLines { longest } => format!(
-                "Very long lines ({longest} characters) — highlighting and wrapping are off"
+                "Lines up to {longest} characters — moving the cursor in this \
+                 file will stutter. Highlighting and wrapping are off to help."
             ),
             LargeFileReason::BigFile { bytes } => format!(
                 "Large file ({:.0} MB) — highlighting and wrapping are off",
@@ -203,6 +235,12 @@ fn normalise(text: &str) -> String {
 }
 
 pub fn decode(bytes: &[u8]) -> LoadedText {
+    decode_with_limit(bytes, LONG_LINE_CHARS)
+}
+
+/// Decode with an explicit long-line limit, so the user's configured value is
+/// what decides rather than the compiled-in default.
+pub fn decode_with_limit(bytes: &[u8], long_line_chars: usize) -> LoadedText {
     let byte_len = bytes.len() as u64;
     let (encoding, had_bom, bom_len) = detect_encoding(bytes);
     let (decoded, _, had_errors) = encoding.decode(&bytes[bom_len.min(bytes.len())..]);
@@ -212,7 +250,7 @@ pub fn decode(bytes: &[u8]) -> LoadedText {
 
     // Line length is checked first: it is the failure mode that surprises
     // people, because it fires on files that are not big at all.
-    let large_file = if longest_line > LONG_LINE_CHARS {
+    let large_file = if longest_line > long_line_chars {
         Some(LargeFileReason::LongLines {
             longest: longest_line,
         })
@@ -234,8 +272,8 @@ pub fn decode(bytes: &[u8]) -> LoadedText {
     }
 }
 
-pub fn load(path: &Path) -> std::io::Result<LoadedText> {
-    Ok(decode(&std::fs::read(path)?))
+pub fn load(path: &Path, long_line_chars: usize) -> std::io::Result<LoadedText> {
+    Ok(decode_with_limit(&std::fs::read(path)?, long_line_chars))
 }
 
 /// Turn editor contents back into bytes for saving, restoring the document's
@@ -326,6 +364,13 @@ mod tests {
         let t = decode(b"a\r\nb\r\nc\r\nd\n");
         assert_eq!(t.line_ending, LineEnding::CrLf);
         assert_eq!(t.text, "a\nb\nc\nd\n");
+    }
+
+    #[test]
+    fn the_long_line_message_does_not_promise_the_problem_is_solved() {
+        let message = LargeFileReason::LongLines { longest: 36_000 }.message();
+        assert!(message.contains("stutter"), "{message}");
+        assert!(message.contains("36000"), "{message}");
     }
 
     #[test]

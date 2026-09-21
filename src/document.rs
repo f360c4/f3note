@@ -216,7 +216,10 @@ impl Document {
     }
 
     /// Read the file and record everything learned about it.
-    pub fn load(&self) -> std::io::Result<LoadedText> {
+    ///
+    /// `long_line_chars` comes from configuration rather than being read here,
+    /// so the document model stays free of it.
+    pub fn load(&self, long_line_chars: usize) -> std::io::Result<LoadedText> {
         let path = {
             let m = self.meta.borrow();
             match m.path.clone() {
@@ -225,7 +228,7 @@ impl Document {
             }
         };
         let stamp = DiskStamp::of(&path);
-        let loaded = text::load(&path)?;
+        let loaded = text::load(&path, long_line_chars)?;
         {
             let mut m = self.meta.borrow_mut();
             m.encoding = loaded.encoding.to_owned();

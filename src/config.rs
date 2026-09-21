@@ -41,6 +41,13 @@ pub struct Appearance {
     pub theme: ThemePreference,
     /// Highlight the line the caret is on.
     pub highlight_current_line: bool,
+    /// Longest line, in characters, before the editor drops wrapping and
+    /// highlighting and warns that navigation will stutter.
+    ///
+    /// Configurable because the right value depends on the machine: the
+    /// default comes from measuring where moving the caret stops fitting in
+    /// one frame on the reference hardware.
+    pub long_line_chars: usize,
 }
 
 impl Default for Appearance {
@@ -53,6 +60,7 @@ impl Default for Appearance {
             syntax_highlighting: false,
             theme: ThemePreference::Auto,
             highlight_current_line: false,
+            long_line_chars: crate::text::LONG_LINE_CHARS,
         }
     }
 }
@@ -113,6 +121,10 @@ impl Config {
         match toml::from_str::<Config>(&text) {
             Ok(mut c) => {
                 c.appearance.opacity = c.appearance.opacity.clamp(0.1, 1.0);
+                // No ceiling: someone who raises this has decided to live with
+                // the stutter, and that is their call. The floor stops a typo
+                // from flagging every ordinary file.
+                c.appearance.long_line_chars = c.appearance.long_line_chars.max(200);
                 c.editor.tab_width = c.editor.tab_width.clamp(1, 16);
                 c.editor.autosave_idle_seconds = c.editor.autosave_idle_seconds.clamp(1, 600);
                 c.editor.autosave_max_seconds = c
