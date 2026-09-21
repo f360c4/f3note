@@ -11,16 +11,18 @@
 //!    exec-to-first-frame and exits, so the budget stays a number anyone can
 //!    check on their own hardware.
 
+use std::cell::RefCell;
 use std::env;
 use std::fs;
 use std::rc::Rc;
 
 use gtk::glib;
 use gtk::prelude::*;
-use sourceview5::prelude::*;
 
 use f3note::config::Config;
+use f3note::ipc;
 use f3note::theme::ThemeEngine;
+use f3note::ui::window::Window;
 
 const APP_ID: &str = "io.github.f360c4.f3note";
 
@@ -62,79 +64,28 @@ fn pin_renderer() {
     env::set_var("GSK_RENDERER", choice);
 }
 
-fn build_window(app: &gtk::Application, engine: &Rc<ThemeEngine>) -> gtk::ApplicationWindow {
-    let view = sourceview5::View::new();
-    view.set_monospace(true);
-    view.set_left_margin(8);
-    view.set_right_margin(8);
-    view.set_top_margin(4);
+/// f3note is a single-window editor, so every activation reuses the window
+/// that already exists. This is also what makes `f3note other.txt` from a
+/// terminal land as a tab instead of spawning a second process.
+fn present(app: &gtk::Application, state: &State, files: &[gtk::gio::File]) {
+    let window = state.window();
 
-    let scroller = gtk::ScrolledWindow::builder()
-        .child(&view)
-        .hexpand(true)
-        .vexpand(true)
-        .build();
-
-    let window = gtk::ApplicationWindow::builder()
-        .application(app)
-        .title("f3note")
-        .default_width(900)
-        .default_height(640)
-        .child(&scroller)
-        .build();
-    // Every rule in the generated stylesheet is scoped to this class, so
-    // f3note styles itself without reaching into any other application's
-    // widgets through the shared display provider.
-    window.add_css_class("f3note");
-
-    let buffer = view
-        .buffer()
-        .downcast::<sourceview5::Buffer>()
-        .expect("a sourceview buffer");
-
-    // Re-apply everything that lives outside CSS whenever the theme changes.
-    let view_weak = view.downgrade();
-    let buffer_weak = buffer.downgrade();
-    engine.on_change(move |theme| {
-        if let Some(view) = view_weak.upgrade() {
-            view.set_show_line_numbers(true);
-            view.set_wrap_mode(gtk::WrapMode::WordChar);
+    if files.is_empty() {
+        if window.current_document().is_none() {
+            window.new_untitled();
         }
-        if let Some(buffer) = buffer_weak.upgrade() {
-            let manager = sourceview5::StyleSchemeManager::default();
-            if let Some(s) = manager.scheme(f3note::theme::scheme::SCHEME_ID) {
-                buffer.set_style_scheme(Some(&s));
+    } else {
+        for file in files {
+            match file.path() {
+                Some(path) => window.open_path(path),
+                None => eprintln!("f3note: cannot open {}", file.uri()),
             }
-            let _ = theme;
         }
-    });
-
-    window
-}
-
-/// f3note is a single-window editor, so every activation reuses the window that
-/// already exists. This is also what makes `f3note other.txt` from a terminal
-/// land as a tab instead of a second process.
-fn present(app: &gtk::Application, engine: &Rc<ThemeEngine>, files: &[gtk::gio::File]) {
-    let window = app
-        .windows()
-        .into_iter()
-        .next()
-        .and_then(|w| w.downcast::<gtk::ApplicationWindow>().ok())
-        .unwrap_or_else(|| build_window(app, engine));
-
-    for file in files {
-        eprintln!(
-            "open: {}",
-            file.path()
-                .map(|p| p.display().to_string())
-                .unwrap_or_else(|| file.uri().to_string())
-        );
     }
 
     if env::var_os("F3NOTE_BENCH").is_some() {
         let app = app.clone();
-        window.add_tick_callback(move |_, _| {
+        window.window.add_tick_callback(move |_, _| {
             if let Some(ms) = ms_since_exec() {
                 let renderer = env::var("GSK_RENDERER").unwrap_or_else(|_| "default".to_owned());
                 eprintln!("exec->first frame: {ms:.0} ms  (renderer: {renderer})");
@@ -144,44 +95,99 @@ fn present(app: &gtk::Application, engine: &Rc<ThemeEngine>, files: &[gtk::gio::
         });
     }
 
-    window.present();
+    window.window.present();
+    let _ = app;
+}
+
+/// Lazily built so nothing touches GTK before the application has started up.
+#[derive(Clone)]
+struct State {
+    app: gtk::Application,
+    window: Rc<RefCell<Option<Rc<Window>>>>,
+    /// Handed to the window once it exists, so the socket is only served by a
+    /// process that actually owns one.
+    listener: Rc<RefCell<Option<std::os::unix::net::UnixListener>>>,
+}
+
+impl State {
+    fn new(app: &gtk::Application, listener: Option<std::os::unix::net::UnixListener>) -> State {
+        State {
+            app: app.clone(),
+            window: Rc::new(RefCell::new(None)),
+            listener: Rc::new(RefCell::new(listener)),
+        }
+    }
+
+    fn window(&self) -> Rc<Window> {
+        let mut slot = self.window.borrow_mut();
+        if let Some(w) = slot.as_ref() {
+            return w.clone();
+        }
+        let (config, err) = Config::load();
+        let engine = ThemeEngine::new(config);
+        let window = Window::new(&self.app, engine);
+        if let Some(e) = err {
+            eprintln!("f3note: {e}");
+        }
+        window.restore_session();
+
+        // Serve the single-instance socket. GApplication has already handled
+        // this when a session bus exists; the socket is what covers the case
+        // where there is none, and where GApplication would otherwise let a
+        // second process start and write the same recovery state.
+        if let Some(listener) = self.listener.borrow_mut().take() {
+            let window = window.clone();
+            if let Err(e) = ipc::listen(listener, move |paths| {
+                for path in paths {
+                    window.open_path(path);
+                }
+                window.window.present();
+            }) {
+                eprintln!("f3note: cannot serve the single-instance socket: {e}");
+            }
+        }
+
+        *slot = Some(window.clone());
+        window
+    }
 }
 
 fn main() -> glib::ExitCode {
     pin_renderer();
+
+    // Claim the single-instance socket before GTK starts. Without a session
+    // bus GApplication does not detect a second instance at all — it prints a
+    // warning and lets every process become primary, which for this editor
+    // would mean two of them writing the same crash-recovery state.
+    let paths: Vec<std::path::PathBuf> = env::args_os()
+        .skip(1)
+        .map(std::path::PathBuf::from)
+        .filter(|p| !p.to_string_lossy().starts_with('-'))
+        .map(|p| std::fs::canonicalize(&p).unwrap_or(p))
+        .collect();
+
+    let listener = match ipc::claim(&paths) {
+        Ok(ipc::Role::Primary(listener)) => Some(listener),
+        Ok(ipc::Role::Delegated) => return glib::ExitCode::SUCCESS,
+        Err(e) => {
+            // Better to run without the fallback than to refuse to start.
+            eprintln!("f3note: single-instance socket unavailable ({e}); continuing");
+            None
+        }
+    };
 
     let app = gtk::Application::builder()
         .application_id(APP_ID)
         .flags(gtk::gio::ApplicationFlags::HANDLES_OPEN)
         .build();
 
-    // The theme engine needs a display, so it cannot be built until GTK has
-    // started up. It is created once on first use and shared from there.
-    let engine: Rc<std::cell::RefCell<Option<Rc<ThemeEngine>>>> =
-        Rc::new(std::cell::RefCell::new(None));
-
-    let get_engine = {
-        let engine = engine.clone();
-        move || -> Rc<ThemeEngine> {
-            let mut slot = engine.borrow_mut();
-            if let Some(e) = slot.as_ref() {
-                return e.clone();
-            }
-            let (config, err) = Config::load();
-            if let Some(e) = err {
-                eprintln!("f3note: {e}");
-            }
-            let e = ThemeEngine::new(config);
-            *slot = Some(e.clone());
-            e
-        }
-    };
+    let state = State::new(&app, listener);
 
     {
-        let get_engine = get_engine.clone();
-        app.connect_activate(move |app| present(app, &get_engine(), &[]));
+        let state = state.clone();
+        app.connect_activate(move |app| present(app, &state, &[]));
     }
-    app.connect_open(move |app, files, _hint| present(app, &get_engine(), files));
+    app.connect_open(move |app, files, _hint| present(app, &state, files));
 
     app.run()
 }

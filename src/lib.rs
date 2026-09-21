@@ -7,5 +7,12 @@
 
 pub mod atomic;
 pub mod config;
+pub mod document;
+pub mod fuzzy;
+pub mod ipc;
+pub mod mru;
 pub mod paths;
+pub mod session;
+pub mod text;
 pub mod theme;
+pub mod ui;

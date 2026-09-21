@@ -190,13 +190,16 @@ fn install_scheme(palette: &Palette) -> Option<&'static str> {
     Some(scheme::SCHEME_ID)
 }
 
+/// Something that wants to be told when the appearance changes.
+type ThemeListener = Box<dyn Fn(&Theme)>;
+
 /// Owns the live appearance: the installed stylesheet, the file watches that
 /// notice a theme change, and the callbacks that want to know about one.
 pub struct ThemeEngine {
     provider: gtk::CssProvider,
     theme: RefCell<Rc<Theme>>,
     config: RefCell<Config>,
-    listeners: RefCell<Vec<Box<dyn Fn(&Theme)>>>,
+    listeners: RefCell<Vec<ThemeListener>>,
     #[allow(dead_code)] // held only to keep the watches alive
     monitors: RefCell<Vec<gio::FileMonitor>>,
 }
