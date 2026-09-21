@@ -49,10 +49,18 @@ highlight_current_line = false
 # measured on; you will simply be warned later.
 long_line_chars = 5000
 
-# "auto" follows the system: Omarchy's current theme if present, otherwise the
-# user's ~/.config/f3note/theme.toml, otherwise the desktop light/dark
-# preference. "dark" or "light" stop following anything and use the built-in
-# palette of that mode.
+# "auto" follows the system: Omarchy's current theme if present, otherwise
+# ~/.config/f3note/theme.toml, otherwise a built-in palette.
+#
+# That last step defaults to dark unless the desktop clearly says otherwise.
+# GTK's gtk-application-prefer-dark-theme is not a reading of what you chose —
+# it is an application's request for a dark variant — and on a fully dark
+# desktop it commonly reports false, which would open a white editor on a
+# black screen. The theme name and the desktop's color-scheme are consulted
+# too, and dark wins the tie.
+#
+# "dark" or "light" stop following anything and use the built-in palette of
+# that mode.
 theme = "auto"
 
 [editor]

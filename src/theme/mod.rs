@@ -328,10 +328,49 @@ impl ThemeEngine {
     }
 }
 
+/// Whether the desktop wants a dark editor, when no palette says otherwise.
+///
+/// `gtk-application-prefer-dark-theme` alone is not enough and is actively
+/// misleading. On the reference machine — a fully dark desktop, GSettings
+/// reporting `prefer-dark`, GTK theme `Adwaita-dark` — that property reads
+/// **false**, because it is an application's own request for a dark variant
+/// rather than a reading of what the user chose. Trusting it would open a
+/// white editor on a black desktop.
+///
+/// So three sources are consulted, and the tie-break is dark. That is the
+/// right default for this audience: someone running a tiling compositor with
+/// a dark palette everywhere is far more likely to want dark than white, and
+/// anyone who genuinely wants light can say so in one line of configuration.
 fn system_prefers_dark() -> bool {
-    gtk::Settings::default()
-        .map(|s| s.is_gtk_application_prefer_dark_theme())
-        .unwrap_or(true)
+    if let Some(settings) = gtk::Settings::default() {
+        if settings.is_gtk_application_prefer_dark_theme() {
+            return true;
+        }
+        let theme = settings.gtk_theme_name().unwrap_or_default().to_lowercase();
+        if theme.contains("dark") {
+            return true;
+        }
+        if theme.contains("light") {
+            return false;
+        }
+    }
+
+    // The desktop's own colour-scheme preference, which is what a user
+    // actually sets. Looked up rather than constructed directly: the schema
+    // does not exist on every system, and gio aborts on a missing one.
+    const SCHEMA: &str = "org.gnome.desktop.interface";
+    if let Some(source) = gio::SettingsSchemaSource::default() {
+        if source.lookup(SCHEMA, true).is_some() {
+            let scheme = gio::Settings::new(SCHEMA).string("color-scheme");
+            match scheme.as_str() {
+                "prefer-dark" => return true,
+                "prefer-light" => return false,
+                _ => {}
+            }
+        }
+    }
+
+    true
 }
 
 #[cfg(test)]
