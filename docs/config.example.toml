@@ -14,11 +14,14 @@
 
 # Window background transparency, from 0.1 to 1.0.
 #
-# Opaque by default, on purpose. Transparency is only useful under a
+# Opaque by default, on purpose. Transparency only does something under a
 # compositor blur rule — without one, a see-through editor is just a
-# harder-to-read editor. On Hyprland, enable blur for f3note and then lower
-# this. Note that Omarchy ships with blur disabled and applies its own window
-# opacity compositor-side, so check there first if nothing seems to change.
+# harder-to-read editor. Omarchy in particular ships with blur turned off, so
+# if you lower this and nothing changes, that is why.
+#
+# Careful: if your compositor also sets this window's opacity, the two
+# multiply. 0.85 here and 0.88 in a Hyprland windowrule gives you 0.75. Pick
+# one place to set it. docs/MANUAL.md has the details.
 opacity = 1.0
 
 line_numbers = true

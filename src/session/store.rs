@@ -296,6 +296,19 @@ pub struct HistoryEntry {
 }
 
 impl HistoryEntry {
+    /// The stored size, in units that are not silly.
+    ///
+    /// A snapshot of a small note compresses to a few hundred bytes, and
+    /// "0.0 KB" reads like an empty file rather than a small one.
+    pub fn size(&self) -> String {
+        match self.stored_bytes {
+            0 => "empty".to_owned(),
+            n if n < 1024 => format!("{n} bytes"),
+            n if n < 1024 * 1024 => format!("{:.0} KB", n as f64 / 1024.0),
+            n => format!("{:.1} MB", n as f64 / (1024.0 * 1024.0)),
+        }
+    }
+
     /// How long ago this was written, in words.
     ///
     /// Rough on purpose. "4 minutes ago" is what someone looking for the
@@ -480,6 +493,23 @@ mod tests {
         assert_eq!(entry(10800).age(now), "3 hours ago");
         assert_eq!(entry(90000).age(now), "yesterday");
         assert_eq!(entry(300000).age(now), "3 days ago");
+    }
+
+    #[test]
+    fn sizes_read_sensibly_at_every_scale() {
+        let entry = |bytes: u64| HistoryEntry {
+            sequence: 1,
+            hash: "x".into(),
+            path: PathBuf::new(),
+            written_at: None,
+            stored_bytes: bytes,
+        };
+        assert_eq!(entry(0).size(), "empty");
+        // A small note compresses to a few hundred bytes; "0.0 KB" would read
+        // like an empty file.
+        assert_eq!(entry(312).size(), "312 bytes");
+        assert_eq!(entry(4096).size(), "4 KB");
+        assert_eq!(entry(3 * 1024 * 1024).size(), "3.0 MB");
     }
 
     #[test]

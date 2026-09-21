@@ -18,10 +18,10 @@ I would like to hear how it went.
 
 | | |
 |---|---|
-| ![Search](docs/images/search.png) | ![Sessions](docs/images/sessions.png) |
-| Search the open tabs and the folder you are in | Named sets of tabs, switched without losing unsaved work |
-| ![Switcher](docs/images/switcher.png) | ![Long lines](docs/images/longlines.png) |
-| Jump to a tab, or reopen a recent file, by typing | Honest about the one thing it is bad at |
+| ![Version history](docs/images/history.png) | ![Search](docs/images/search.png) |
+| `Ctrl+Shift+H` — put back an earlier version, even one you already saved | `Ctrl+Shift+F` — search the open tabs and the folder you are in |
+| ![Sessions](docs/images/sessions.png) | ![Switcher](docs/images/switcher.png) |
+| `Ctrl+Shift+E` — named sets of tabs, switched without losing unsaved work | `Ctrl+P` — reach a tab, or reopen a recent file, by typing |
 
 ## What it does
 
@@ -116,9 +116,17 @@ than my testing: **Ubuntu 22.04 (GTK 4.6), Debian 12 (GTK 4.8) and RHEL 9 (no
 GtkSourceView 5 at all) cannot run it.** Not from source, and not from the
 AppImage. See [docs/PORTING.md](docs/PORTING.md).
 
+### Flatpak
+
+For Ubuntu 22.04, Debian 12 and RHEL 9 this is the only route that works: it
+carries its own GTK, so the host being old stops mattering. Not on Flathub
+yet; [docs/FLATPAK.md](docs/FLATPAK.md) covers building it and submitting it.
+
+### Packaging
+
 Not in any distribution's repositories yet. An AUR `PKGBUILD` is in
-`packaging/` and is ready — see [docs/AUR.md](docs/AUR.md) — but has not been
-submitted.
+`packaging/`, pinned to a commit with a verifiable checksum — see
+[docs/AUR.md](docs/AUR.md).
 
 ## Keyboard
 
@@ -161,6 +169,12 @@ opacity = 0.9              # needs a compositor blur rule to be worth anything
 syntax_highlighting = true # off by default: it should open like a notepad
 ```
 
+Transparency is off by default and takes two steps to turn on — the editor
+asking for it and your compositor drawing something behind it. Doing only one
+does nothing, which is the usual reason people think it is broken.
+[docs/MANUAL.md](docs/MANUAL.md#transparency) has both, and the trap where
+setting it in two places multiplies them.
+
 Colours cascade: your Omarchy theme if you have one, then
 `~/.config/f3note/theme.toml`, then the desktop's light/dark preference. On an
 Omarchy system the palette f3note resolves is identical to the one every other
@@ -175,7 +189,9 @@ finding the cursor's column means shaping every character in it. Minified CSS
 and single-line JSON make the cursor stutter, and no setting removes that.
 
 f3note detects such files, turns off what it can, and says so rather than
-pretending the problem is handled.
+pretending the problem is handled:
+
+![Long lines](docs/images/longlines.png)
 
 **No split view, no multiple cursors, no plugins, no LSP.** Deliberately. If
 you want those, you want a different editor, and there are good ones.

@@ -28,6 +28,10 @@ fn main() -> glib::ExitCode {
         let (config, _) = Config::load();
         let engine = ThemeEngine::new(config);
         let window = Window::new(app, engine);
+        // Sized here rather than by the compositor afterwards. Resizing a
+        // window from outside dismisses an autohide popover, which is exactly
+        // what a screenshot of one needs to survive.
+        window.window.set_default_size(980, 600);
         for f in &files {
             window.open_path(std::path::PathBuf::from(f));
         }
@@ -35,9 +39,16 @@ fn main() -> glib::ExitCode {
 
         let what = what.clone();
         let window: Rc<Window> = window;
-        glib::timeout_add_local_once(std::time::Duration::from_millis(4000), move || {
+
+        // The popover is reopened on a loop rather than once. An autohide
+        // popover closes when its window loses focus, and this window never
+        // reliably gets focus when the capture runs unattended — so a single
+        // open is a race against grim that it usually loses. Reopening keeps
+        // one on screen whenever the screenshot lands.
+        let mut seeded = false;
+        glib::timeout_add_local(std::time::Duration::from_millis(2500), move || {
             match what.as_str() {
-                "history" => {
+                "history" if !std::mem::replace(&mut seeded, true) => {
                     // A few versions to list.
                     if let Some(doc) = window.current_document() {
                         let store = f3note::session::store::DocStore::new(
@@ -58,6 +69,7 @@ fn main() -> glib::ExitCode {
                     }
                     window.open_history_for_test();
                 }
+                "history" => window.open_history_for_test(),
                 "search" => {
                     window.search_files_for_test();
                     window.set_search_query_for_test("version");
@@ -68,8 +80,9 @@ fn main() -> glib::ExitCode {
                     window.open_sessions_for_test();
                 }
                 "switcher" => window.open_switcher_for_test(),
-                _ => {}
+                _ => return glib::ControlFlow::Break,
             }
+            glib::ControlFlow::Continue
         });
     });
 

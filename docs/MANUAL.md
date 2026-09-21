@@ -176,6 +176,52 @@ The font follows the system monospace font, which on a fontconfig system means
 whatever `monospace` resolves to — so changing your terminal font changes this
 too. Override with `font = "Iosevka 12"` in the config.
 
+## Transparency
+
+Two things have to happen, and doing only one of them does nothing at all —
+which is the usual reason people conclude it is broken.
+
+**1. f3note has to ask for a translucent background.** Create
+`~/.config/f3note/config.toml`:
+
+```toml
+[appearance]
+opacity = 0.85
+```
+
+Anything from 0.1 to 1.0. It applies immediately, without restarting.
+
+**2. Your compositor has to draw something behind it.** A translucent window
+over a blank desktop is just a harder-to-read window; the effect people
+actually want is the compositor blurring what is underneath.
+
+On Hyprland, in `~/.config/hypr/looknfeel.lua`:
+
+```lua
+decoration = {
+  blur = { enabled = true, size = 6, passes = 2 },
+}
+```
+
+**Omarchy ships with blur turned off**, so if you are on Omarchy and nothing
+changed, this is why.
+
+### The trap
+
+Hyprland can also set a window's opacity itself:
+
+```lua
+windowrule = { "opacity 0.92 0.88, class:^(io\.github\.f360c4\.f3note)$" }
+```
+
+The two numbers are focused and unfocused. But if you use this *and* f3note's
+own `opacity`, **they multiply**: 0.85 × 0.88 is 0.75, considerably more
+transparent than either number suggests, and then everyone blames the editor.
+
+Pick one. The compositor rule is usually the better choice, because then
+f3note matches however you have set up every other window, and it is all
+configured in one place. Leave `opacity` at 1.0 if you go that way.
+
 ## Long lines
 
 f3note handles large files well: 200 000 lines and 11 MB open in about 370ms

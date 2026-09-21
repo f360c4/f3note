@@ -410,10 +410,7 @@ impl Window {
                 .xalign(0.0)
                 .build();
             let size = gtk::Label::builder()
-                .label(format!(
-                    "{:.1} KB compressed",
-                    entry.stored_bytes as f64 / 1024.0
-                ))
+                .label(format!("{} compressed", entry.size()))
                 .xalign(0.0)
                 .build();
             size.add_css_class("path");
