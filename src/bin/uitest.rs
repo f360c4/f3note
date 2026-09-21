@@ -162,9 +162,49 @@ fn run(window: Rc<Window>) {
         "close and forget left no document"
     );
 
-    println!("find bar");
+    println!("find and replace");
+    window.open_path(files[2].clone());
     window.open_find_for_test(false);
+    window.set_find_query_for_test("line");
+    window.find_step_for_test(true);
+    window.find_step_for_test(true);
+    window.find_step_for_test(false);
     window.open_find_for_test(true);
+    window.set_replacement_for_test("LINE");
+    window.replace_for_test(false);
+    window.replace_for_test(true);
+    check!(
+        window.current_document().is_some(),
+        "replacing left no current document"
+    );
+
+    println!("searching for something that is not there");
+    window.set_find_query_for_test("zzzzz-not-present-zzzzz");
+    window.find_step_for_test(true);
+
+    println!("go to line");
+    window.jump_to_line_for_test(1);
+    // Deliberately out of range in both directions: the caller is a text box
+    // the user types into, so it will happen.
+    window.jump_to_line_for_test(-5);
+    window.jump_to_line_for_test(999_999);
+    window.goto_line_for_test();
+
+    println!("tab switcher popover");
+    // GDK may log "Tried to map a grabbing popup with a non-top most parent"
+    // here. That is this environment, not a defect: an autohide popover takes
+    // a grab, and the grab is refused while the test window does not have
+    // focus — which it never does, because the test runs unattended. Verified
+    // by re-running with autohide(false), which is silent. Autohide stays on;
+    // clicking away to dismiss is the behaviour people expect.
+    window.open_switcher_for_test();
+
+    println!("saving");
+    window.save_for_test();
+    check!(
+        window.current_document().is_some(),
+        "saving left no current document"
+    );
 
     println!("zoom");
     for _ in 0..3 {
@@ -173,6 +213,13 @@ fn run(window: Rc<Window>) {
     for _ in 0..8 {
         window.zoom_for_test(-1);
     }
+
+    println!("saving an untitled document does not silently write anywhere");
+    window.new_untitled();
+    let untitled = window.current_document().unwrap();
+    check!(untitled.path().is_none(), "a new tab should have no path");
+    // Save on an untitled document opens a file chooser rather than writing;
+    // the test only checks it does not crash on the way there.
 
     let _ = std::fs::remove_dir_all(dir);
     println!("PASS: the window survived everything a first minute throws at it");

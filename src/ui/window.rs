@@ -71,6 +71,10 @@ pub struct Window {
     /// from the tick rather than immediately, so opening twenty files at once
     /// costs one write instead of twenty.
     session_dirty: Cell<bool>,
+    /// The popover currently on screen, if any. Only one is ever shown: a
+    /// second grabbing popup over the first is both wrong for the user and
+    /// refused by GDK.
+    popover: RefCell<Option<gtk::Popover>>,
 }
 
 impl Window {
@@ -132,6 +136,7 @@ impl Window {
             recovered: RefCell::new(Vec::new()),
             reported_failure: Cell::new(false),
             session_dirty: Cell::new(false),
+            popover: RefCell::new(None),
         });
 
         this.clone().connect_signals();
@@ -1253,6 +1258,33 @@ impl Window {
 
     // ------------------------------------------------------- go to line
 
+    /// Anchor a popover so it appears over the document, centred near the top.
+    ///
+    /// Parenting to the window itself produces "Tried to map a grabbing popup
+    /// with a non-top most parent" and puts the popup somewhere arbitrary. The
+    /// notebook is the right anchor: it is the widget the popover is logically
+    /// about, and pointing at a thin rectangle across its top gives the
+    /// command-palette placement people expect.
+    fn anchor_popover(&self, popover: &gtk::Popover) {
+        // Only one popover at a time. Pressing Ctrl+P while the go-to-line box
+        // is open is a normal thing to do, and stacking a second grabbing
+        // popup on the first is refused by GDK with "Tried to map a grabbing
+        // popup with a non-top most parent".
+        if let Some(previous) = self.popover.borrow_mut().take() {
+            previous.popdown();
+            previous.unparent();
+        }
+        *self.popover.borrow_mut() = Some(popover.clone());
+
+        popover.set_parent(&self.notebook);
+        popover.set_position(gtk::PositionType::Bottom);
+        popover.set_halign(gtk::Align::Center);
+        popover.set_has_arrow(false);
+        let width = self.notebook.width().max(1);
+        popover.set_pointing_to(Some(&gdk::Rectangle::new(width / 2, 0, 1, 1)));
+        popover.add_css_class("f3note-switcher");
+    }
+
     fn goto_line(self: &Rc<Self>) {
         let Some(buffer) = self.current_document().and_then(|d| d.buffer()) else {
             return;
@@ -1265,11 +1297,10 @@ impl Window {
             .activates_default(true)
             .build();
 
-        // A small popover at the caret, not a modal dialog: the point of an
-        // inline editor is that nothing blocks.
+        // A small popover, not a modal dialog: the point of an inline editor is
+        // that nothing blocks.
         let popover = gtk::Popover::builder().child(&entry).autohide(true).build();
-        popover.set_parent(&self.window);
-        popover.add_css_class("f3note-switcher");
+        self.anchor_popover(&popover);
 
         let this = self.clone();
         let popover_ref = popover.clone();
@@ -1279,13 +1310,27 @@ impl Window {
             }
             popover_ref.popdown();
         });
-        let popover_ref = popover.clone();
-        popover.connect_closed(move |_| {
-            popover_ref.unparent();
-        });
+        let this = self.clone();
+        popover.connect_closed(move |p| this.dismiss_popover(p));
 
         popover.popup();
         entry.grab_focus();
+    }
+
+    /// Tear down a popover once it closes, and forget it if it was the current
+    /// one. Guarded so a popover replaced by a newer one does not clear the
+    /// newer one's slot on its way out.
+    fn dismiss_popover(&self, popover: &gtk::Popover) {
+        let is_current = self
+            .popover
+            .borrow()
+            .as_ref()
+            .map(|p| p == popover)
+            .unwrap_or(false);
+        if is_current {
+            *self.popover.borrow_mut() = None;
+        }
+        popover.unparent();
     }
 
     fn jump_to_line(self: &Rc<Self>, line: i32) {
@@ -1439,8 +1484,8 @@ impl Window {
         });
         entry.add_controller(keys);
 
-        let popover_ref = popover.clone();
-        popover.connect_closed(move |_| popover_ref.unparent());
+        let this = self.clone();
+        popover.connect_closed(move |p| this.dismiss_popover(p));
 
         popover.popup();
         entry.grab_focus();
@@ -1544,6 +1589,38 @@ impl Window {
 
     pub fn zoom_for_test(&self, delta: i32) {
         self.bump_zoom(delta);
+    }
+
+    pub fn goto_line_for_test(self: &Rc<Self>) {
+        self.goto_line();
+    }
+
+    pub fn jump_to_line_for_test(self: &Rc<Self>, line: i32) {
+        self.jump_to_line(line);
+    }
+
+    pub fn open_switcher_for_test(self: &Rc<Self>) {
+        self.open_switcher();
+    }
+
+    pub fn find_step_for_test(self: &Rc<Self>, forward: bool) {
+        self.find_step(forward);
+    }
+
+    pub fn replace_for_test(self: &Rc<Self>, all: bool) {
+        self.replace_current(all);
+    }
+
+    pub fn save_for_test(self: &Rc<Self>) {
+        self.save();
+    }
+
+    pub fn set_find_query_for_test(&self, text: &str) {
+        self.findbar.query.set_text(text);
+    }
+
+    pub fn set_replacement_for_test(&self, text: &str) {
+        self.findbar.replacement.set_text(text);
     }
 
     fn open_find(self: &Rc<Self>, with_replace: bool) {
