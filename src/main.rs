@@ -13,10 +13,14 @@
 
 use std::env;
 use std::fs;
+use std::rc::Rc;
 
 use gtk::glib;
 use gtk::prelude::*;
 use sourceview5::prelude::*;
+
+use f3note::config::Config;
+use f3note::theme::ThemeEngine;
 
 const APP_ID: &str = "io.github.f360c4.f3note";
 
@@ -50,21 +54,26 @@ fn ms_since_exec() -> Option<f64> {
 /// are doing and f3note has no business overriding them. `F3NOTE_RENDERER`
 /// exists so users on hardware where Vulkan initialises quickly can opt back
 /// into acceleration without having to know GSK's variable name.
-fn pin_renderer() -> String {
-    if let Some(existing) = env::var_os("GSK_RENDERER") {
-        return existing.to_string_lossy().into_owned();
+fn pin_renderer() {
+    if env::var_os("GSK_RENDERER").is_some() {
+        return;
     }
     let choice = env::var("F3NOTE_RENDERER").unwrap_or_else(|_| "cairo".to_owned());
-    env::set_var("GSK_RENDERER", &choice);
-    choice
+    env::set_var("GSK_RENDERER", choice);
 }
 
-fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
+fn build_window(app: &gtk::Application, engine: &Rc<ThemeEngine>) -> gtk::ApplicationWindow {
     let view = sourceview5::View::new();
     view.set_monospace(true);
-    view.set_show_line_numbers(true);
+    view.set_left_margin(8);
+    view.set_right_margin(8);
+    view.set_top_margin(4);
 
-    let scroller = gtk::ScrolledWindow::builder().child(&view).build();
+    let scroller = gtk::ScrolledWindow::builder()
+        .child(&view)
+        .hexpand(true)
+        .vexpand(true)
+        .build();
 
     let window = gtk::ApplicationWindow::builder()
         .application(app)
@@ -73,6 +82,32 @@ fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
         .default_height(640)
         .child(&scroller)
         .build();
+    // Every rule in the generated stylesheet is scoped to this class, so
+    // f3note styles itself without reaching into any other application's
+    // widgets through the shared display provider.
+    window.add_css_class("f3note");
+
+    let buffer = view
+        .buffer()
+        .downcast::<sourceview5::Buffer>()
+        .expect("a sourceview buffer");
+
+    // Re-apply everything that lives outside CSS whenever the theme changes.
+    let view_weak = view.downgrade();
+    let buffer_weak = buffer.downgrade();
+    engine.on_change(move |theme| {
+        if let Some(view) = view_weak.upgrade() {
+            view.set_show_line_numbers(true);
+            view.set_wrap_mode(gtk::WrapMode::WordChar);
+        }
+        if let Some(buffer) = buffer_weak.upgrade() {
+            let manager = sourceview5::StyleSchemeManager::default();
+            if let Some(s) = manager.scheme(f3note::theme::scheme::SCHEME_ID) {
+                buffer.set_style_scheme(Some(&s));
+            }
+            let _ = theme;
+        }
+    });
 
     window
 }
@@ -80,17 +115,15 @@ fn build_window(app: &gtk::Application) -> gtk::ApplicationWindow {
 /// f3note is a single-window editor, so every activation reuses the window that
 /// already exists. This is also what makes `f3note other.txt` from a terminal
 /// land as a tab instead of a second process.
-fn present(app: &gtk::Application, files: &[gtk::gio::File]) {
+fn present(app: &gtk::Application, engine: &Rc<ThemeEngine>, files: &[gtk::gio::File]) {
     let window = app
         .windows()
         .into_iter()
         .next()
         .and_then(|w| w.downcast::<gtk::ApplicationWindow>().ok())
-        .unwrap_or_else(|| build_window(app));
+        .unwrap_or_else(|| build_window(app, engine));
 
     for file in files {
-        // Milestone 1 only proves the file reaches the running instance; the
-        // buffer manager that will actually load it does not exist yet.
         eprintln!(
             "open: {}",
             file.path()
@@ -122,8 +155,33 @@ fn main() -> glib::ExitCode {
         .flags(gtk::gio::ApplicationFlags::HANDLES_OPEN)
         .build();
 
-    app.connect_activate(|app| present(app, &[]));
-    app.connect_open(|app, files, _hint| present(app, files));
+    // The theme engine needs a display, so it cannot be built until GTK has
+    // started up. It is created once on first use and shared from there.
+    let engine: Rc<std::cell::RefCell<Option<Rc<ThemeEngine>>>> =
+        Rc::new(std::cell::RefCell::new(None));
+
+    let get_engine = {
+        let engine = engine.clone();
+        move || -> Rc<ThemeEngine> {
+            let mut slot = engine.borrow_mut();
+            if let Some(e) = slot.as_ref() {
+                return e.clone();
+            }
+            let (config, err) = Config::load();
+            if let Some(e) = err {
+                eprintln!("f3note: {e}");
+            }
+            let e = ThemeEngine::new(config);
+            *slot = Some(e.clone());
+            e
+        }
+    };
+
+    {
+        let get_engine = get_engine.clone();
+        app.connect_activate(move |app| present(app, &get_engine(), &[]));
+    }
+    app.connect_open(move |app, files, _hint| present(app, &get_engine(), files));
 
     app.run()
 }
