@@ -8,7 +8,11 @@ Windows Notepad's simplicity and Notepad++'s tabs, for Wayland, opening in
 about 150ms. The speed is a consequence of keeping it small; not losing your
 work is the point.
 
-![f3note](docs/images/editor.png)
+![f3note losing nothing after being killed mid-edit](docs/images/recovery.gif)
+
+*Typing, `kill -9`, and opening it again. It was never saved once, and
+`notes.txt` on disk is still empty — the recovered text came from f3note's own
+mirror. `./scripts/crashtest.sh` runs the same sequence as a test.*
 
 Written on Hyprland, which is the only compositor it has been tested on.
 Nothing in it is Hyprland-specific — it is a plain GTK4 application and talks

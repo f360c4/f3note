@@ -35,6 +35,29 @@
   </description>
 
   <launchable type="desktop-id">io.github.f360c4.f3note.desktop</launchable>
+
+  <!-- Flathub will not accept a submission without at least one of these, and
+       the software centre shows nothing without them. Pinned to main rather
+       than to a tag because the screenshots are retaken more often than the
+       editor is released. -->
+  <screenshots>
+    <screenshot type="default">
+      <caption>Editing a file, with tabs and line numbers</caption>
+      <image>https://raw.githubusercontent.com/f360c4/f3note/main/docs/images/editor.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Putting back an earlier version of a file</caption>
+      <image>https://raw.githubusercontent.com/f360c4/f3note/main/docs/images/history.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Searching the open tabs and the current folder</caption>
+      <image>https://raw.githubusercontent.com/f360c4/f3note/main/docs/images/search.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Named sessions: saved sets of tabs</caption>
+      <image>https://raw.githubusercontent.com/f360c4/f3note/main/docs/images/sessions.png</image>
+    </screenshot>
+  </screenshots>
   <url type="homepage">https://github.com/f360c4/f3note</url>
   <url type="bugtracker">https://github.com/f360c4/f3note/issues</url>
   <url type="vcs-browser">https://github.com/f360c4/f3note</url>
