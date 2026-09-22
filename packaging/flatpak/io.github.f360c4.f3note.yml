@@ -50,15 +50,18 @@ finish-args:
   # No network. f3note does not make a single request, and saying so here
   # means it cannot start.
 
-  # The theme cascade reads Omarchy's palette from the host, read-only.
-  - --filesystem=xdg-data/omarchy:ro
+  # The theme cascade reads the palette of the theme currently selected. This
+  # is the only path f3note needs that --filesystem=host does not obviously
+  # imply, and it is kept separate so that it survives host access being
+  # narrowed.
   - --filesystem=~/.local/state/omarchy:ro
 
-  # Fonts and icons from the host, so it looks like the rest of the desktop
-  # rather than like a sandbox.
-  - --filesystem=xdg-config/fontconfig:ro
-  - --filesystem=~/.local/share/fonts:ro
-  - --filesystem=xdg-config/gtk-4.0:ro
+  # Nothing is asked for fonts, fontconfig or the host's GTK settings. Flatpak
+  # already provides all three, and flatpak-builder-lint rejects asking again:
+  #   finish-args-unnecessary-xdg-config-fontconfig-ro-access
+  #   finish-args-unnecessary-xdg-config-gtk-4.0-ro-access
+  # xdg-data/omarchy was asked for too, and nothing ever read it — the theme
+  # comes from the state directory above, and data_dir() is f3note's own.
 
 modules:
   - name: f3note
