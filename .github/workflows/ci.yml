@@ -78,6 +78,46 @@ jobs:
         env:
           XDG_RUNTIME_DIR: /tmp/runtime-ci
 
+  # The PKGBUILD claims aarch64. Nobody here owns an ARM machine, so without
+  # this job that claim is a guess — and Omarchy is being ported to Snapdragon
+  # laptops, which is where it would be found out. arm64 runners are free on
+  # public repositories.
+  aarch64:
+    name: Build and test on aarch64
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install GTK
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libgtksourceview-5-dev
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+
+      - name: Tests
+        run: cargo test --locked
+
+      # Formatting, clippy and licences do not depend on the architecture and
+      # are already covered; what is unknown here is whether the thing builds
+      # and whether the widget tree and the recovery behave the same.
+      - name: Window and recovery tests
+        run: |
+          sudo apt-get install -y weston
+          mkdir -p "$XDG_RUNTIME_DIR"
+          weston --backend=headless-backend.so --socket=wayland-ci --idle-time=0 &
+          sleep 3
+          export WAYLAND_DISPLAY=wayland-ci
+          cargo build --release
+          G_DEBUG=fatal-criticals ./target/release/uitest
+          ./scripts/crashtest.sh
+        env:
+          XDG_RUNTIME_DIR: /tmp/runtime-ci
+
   licenses:
     name: Dependency licences
     runs-on: ubuntu-24.04
