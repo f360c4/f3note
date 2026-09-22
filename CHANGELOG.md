@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.0.2
+
+Packaging and the README; the editor is unchanged.
+
+- The Arch package builds again. Arch enables LTO for every package, and
+  `zstd-sys` compiles the bundled C zstd with the exported `CFLAGS`; those
+  objects become LTO bitcode the Rust link step cannot resolve, so the build
+  died on undefined `ZSTD_*` symbols after everything had already compiled.
+  `options=(!lto)` stops it. This was found by building the package rather
+  than by reading the recipe.
+- `packaging/.SRCINFO` exists. The AUR rejects a push without it.
+- The AppStream metadata declares screenshots. Flathub does not accept a
+  submission without them, and software centres show an empty card.
+- The Arch package installs the AppStream metadata, so a software centre on
+  Arch describes it the same way Flathub would.
+- aarch64 is built and tested in CI rather than merely declared in the
+  recipe: the same unit tests, the same window test under weston, and the
+  same crash recovery.
+- The README opens on the recovery rather than on a screenshot of the editor.
+
 ## 1.0.1
 
 Packaging only; the editor is unchanged.

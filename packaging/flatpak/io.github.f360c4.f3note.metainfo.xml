@@ -69,6 +69,11 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="1.0.2" date="2026-09-21">
+      <description>
+        <p>Packaging and the README; the editor is unchanged.</p>
+      </description>
+    </release>
     <release version="1.0.1" date="2026-09-21">
       <description>
         <p>Packaging only; the editor is unchanged.</p>
