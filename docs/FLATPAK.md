@@ -122,20 +122,33 @@ cut from a commit that had no `packaging/flatpak` directory at all, so a
 manifest built from it cannot find the metainfo file it installs. Whatever is
 in the manifest has to exist inside the tarball named in it.
 
-**4. Submit.** Fork `flathub/flathub`, create a branch named exactly the app
-id, and open a pull request against the `new-pr` branch:
+**4. Submit.** Fork `flathub/flathub` — leaving "copy the master branch only"
+unchecked, or the `new-pr` branch will not come with it — then branch from
+`new-pr` and open the pull request against `new-pr`, never against `master`.
+
+**The files go at the root of the branch.** Not in a directory named after
+the app id: a submission-checker action runs hourly and closes the pull
+request automatically with `Diagnostics: Files not in toplevel`. That is what
+happened to the first attempt here. The manifest has to be at the top level
+and named after the application id.
 
 ```sh
-git clone https://github.com/flathub/flathub ~/flathub && cd ~/flathub
+git clone --branch=new-pr https://github.com/<you>/flathub ~/flathub
+cd ~/flathub
 git checkout -b io.github.f360c4.f3note new-pr
-mkdir io.github.f360c4.f3note
-cp ~/Documents/f3note/target/flathub/* io.github.f360c4.f3note/   # not packaging/
-git add io.github.f360c4.f3note
+cp ~/Documents/f3note/target/flathub/io.github.f360c4.f3note.yml .   # root
+cp ~/Documents/f3note/target/flathub/cargo-sources.json .            # root
+git add io.github.f360c4.f3note.yml cargo-sources.json
 git commit -m "Add io.github.f360c4.f3note"
 git push origin io.github.f360c4.f3note
 ```
 
-Then open the pull request on GitHub, against `new-pr`.
+The metainfo file is not copied: the manifest installs it out of the release
+tarball, which carries it. Then open the pull request on GitHub, against
+`new-pr`, titled `Add io.github.f360c4.f3note`.
+
+If that action closes the pull request, it says to **comment on it** rather
+than open or reopen another one.
 
 A bot builds it and comments. A human reviews after that, and will ask about
 anything unusual — in this manifest, that is almost certainly
