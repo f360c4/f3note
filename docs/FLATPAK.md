@@ -129,7 +129,7 @@ id, and open a pull request against the `new-pr` branch:
 git clone https://github.com/flathub/flathub ~/flathub && cd ~/flathub
 git checkout -b io.github.f360c4.f3note new-pr
 mkdir io.github.f360c4.f3note
-cp ~/Documents/f3note/packaging/flatpak/* io.github.f360c4.f3note/
+cp ~/Documents/f3note/target/flathub/* io.github.f360c4.f3note/   # not packaging/
 git add io.github.f360c4.f3note
 git commit -m "Add io.github.f360c4.f3note"
 git push origin io.github.f360c4.f3note
