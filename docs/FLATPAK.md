@@ -90,19 +90,37 @@ flatpak run org.freedesktop.appstream-glib validate \
   packaging/flatpak/io.github.f360c4.f3note.metainfo.xml
 ```
 
-**3. Point the manifest at a release, not at this directory.** The manifest
-here builds from the working tree, which is right for development and wrong
-for Flathub: a submission has to build from something fixed. Replace the `dir`
-source with the release tarball and its checksum, the same ones the AUR
-package uses — `scripts/release.sh` prints both:
+**3. Generate the submission manifest.** The manifest in `packaging/` builds
+from the working tree, which is right for development and wrong for Flathub:
+a submission has to build from something fixed. `scripts/flathub-manifest.sh`
+writes the submission copy into `target/flathub/`, with the `dir` source
+replaced by the published release tarball and its checksum — the same ones
+the Arch package uses:
 
-```yaml
-sources:
-  - type: archive
-    url: https://github.com/f360c4/f3note/releases/download/v1.0.1/f3note-1.0.1.tar.gz
-    sha256: a22af9107d30f4d5d33de8f21feeb57f5e215e129fc6422daaea0b9baccd45dc
-  - cargo-sources.json
+```sh
+./scripts/flathub-manifest.sh
 ```
+
+It downloads the release first and compares, and refuses to write anything if
+the published tarball and the recipe disagree. A manifest whose checksum no
+longer matches what is published fails silently until a bot rejects it.
+
+Then build *that* manifest, not the development one, because it is what the
+reviewer's machine will build:
+
+```sh
+cd target/flathub
+flatpak-builder --force-clean --repo=/tmp/f3note-repo /tmp/f3note-build \
+  io.github.f360c4.f3note.yml
+```
+
+Note that the build directory and flatpak-builder's state directory have to
+be on the same filesystem, or it stops before doing anything.
+
+**A release the tarball predates is not submittable.** The 1.0.1 tarball was
+cut from a commit that had no `packaging/flatpak` directory at all, so a
+manifest built from it cannot find the metainfo file it installs. Whatever is
+in the manifest has to exist inside the tarball named in it.
 
 **4. Submit.** Fork `flathub/flathub`, create a branch named exactly the app
 id, and open a pull request against the `new-pr` branch:
