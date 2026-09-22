@@ -1,6 +1,6 @@
 # Maintainer: Luiz Felipe - F360c4 <f360c4@gmail.com>
 pkgname=f3note
-pkgver=1.0.1
+pkgver=1.0.2
 pkgrel=1
 pkgdesc="A fast, minimal tabbed text editor for Wayland"
 arch=('x86_64' 'aarch64')
@@ -21,7 +21,7 @@ options=(!lto)
 # implicit in a tag, because a tag is a mutable pointer: whoever controls the
 # repository can move it, and a later makepkg would then compile something
 # other than what was reviewed. A commit hash cannot be moved.
-_commit=d344782080b157af5a68bf045d3d1ea07b755c53
+_commit=55231f368503820393049de90f14aefb1444568e
 
 # A release asset, not GitHub's generated /archive/<ref>.tar.gz. Those are
 # built on demand and GitHub has never promised them to be byte-identical
@@ -29,14 +29,14 @@ _commit=d344782080b157af5a68bf045d3d1ea07b755c53
 # across Homebrew, the AUR and Nix at once. An uploaded asset is stored, not
 # regenerated.
 source=("$pkgname-$pkgver.tar.gz::$url/releases/download/v$pkgver/$pkgname-$pkgver.tar.gz")
-sha256sums=('a22af9107d30f4d5d33de8f21feeb57f5e215e129fc6422daaea0b9baccd45dc')
+sha256sums=('6403b28fe5af9bad61d90b8f8bd4f8b5dc40deecc135cd3617f8fbc359a864a1')
 
 # The tarball is reproducible rather than something you have to take on
 # trust. It is `git archive` of the commit above, and you can rebuild it and
 # compare:
 #
 #   git clone https://github.com/f360c4/f3note && cd f3note
-#   git archive --format=tar --prefix=f3note-1.0.1/ $_commit | gzip -n -9 | sha256sum
+#   git archive --format=tar --prefix=f3note-1.0.2/ $_commit | gzip -n -9 | sha256sum
 #
 # `gzip -n` omits the timestamp, which is what makes the result stable.
 
