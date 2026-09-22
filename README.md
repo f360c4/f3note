@@ -220,12 +220,19 @@ scrolling past.
 
 ## Status
 
-1.0.1, released. See [CHANGELOG.md](CHANGELOG.md).
+1.0.2, released. See [CHANGELOG.md](CHANGELOG.md).
 
 Written and used by one person on one machine — Arch, Hyprland, an NVIDIA
 card. The automated tests cover the logic, the window and crash recovery, and
 run on every push; everything visual was checked by hand on that one setup.
 Bug reports from different hardware are genuinely useful.
+
+**Built with AI assistance.** The code, the packaging and most of the
+documentation were written with a coding agent, directed and reviewed by me.
+It is said here rather than left to be found out: some projects want to know,
+and some repositories require it to be declared. What it does not mean is
+unchecked — the measurements in this README were run on this machine, and the
+tests run on every push.
 
 ## License
 
