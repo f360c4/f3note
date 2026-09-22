@@ -116,9 +116,10 @@ git push
 
 ## Things that will bite
 
-**The tag has to exist first.** The PKGBUILD downloads
-`archive/refs/tags/v$pkgver.tar.gz` from GitHub. Publish the release before
-the AUR package, not after.
+**The release has to exist first.** The PKGBUILD downloads
+`releases/download/v$pkgver/f3note-$pkgver.tar.gz`, which is an asset you
+upload — GitHub does not generate it. Publish the release with the tarball
+attached before the AUR package, not after, or every `makepkg` gets a 404.
 
 **Never let `SKIP` back in.** It means the build accepts whatever it
 downloads. `scripts/release.sh` writes a real hash; if you edit the PKGBUILD
@@ -127,6 +128,19 @@ by hand, run the verification in step 3 again.
 **Rust 1.92.** The PKGBUILD depends on `cargo`, and Arch's is current, so
 this is fine on Arch — but it is worth knowing if anyone asks why it will not
 build elsewhere.
+
+**LTO is on by default and breaks this package.** Arch's `makepkg.conf`
+carries `OPTIONS=(... lto)`, and `zstd-sys` compiles the bundled C zstd with
+the exported `CFLAGS`. Those objects become LTO bitcode that the Rust link
+step cannot resolve, and the build dies on undefined `ZSTD_*` symbols after
+everything has already compiled. `options=(!lto)` in the PKGBUILD is what
+stops it. Do not remove it without building the package again.
+
+**`makedepends=('cargo')` looks unsatisfied if you installed rustup by hand.**
+`makepkg` asks pacman, and a rustup installed from rustup.rs is invisible to
+it. The declaration is right — both `rust` and `rustup` carry
+`Provides: cargo` — so this is a fact about your machine, not the recipe.
+Build with `makepkg --nodeps` when testing locally.
 
 **Do not commit `pkg/`, `src/` or the tarball.** The AUR repository holds two
 files: `PKGBUILD` and `.SRCINFO`. Add a `.gitignore` if you are unsure.

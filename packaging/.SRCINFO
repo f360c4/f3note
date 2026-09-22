@@ -1,0 +1,16 @@
+pkgbase = f3note
+	pkgdesc = A fast, minimal tabbed text editor for Wayland
+	pkgver = 1.0.1
+	pkgrel = 1
+	url = https://github.com/f360c4/f3note
+	arch = x86_64
+	arch = aarch64
+	license = MIT
+	makedepends = cargo
+	depends = gtk4
+	depends = gtksourceview5
+	options = !lto
+	source = f3note-1.0.1.tar.gz::https://github.com/f360c4/f3note/releases/download/v1.0.1/f3note-1.0.1.tar.gz
+	sha256sums = a22af9107d30f4d5d33de8f21feeb57f5e215e129fc6422daaea0b9baccd45dc
+
+pkgname = f3note

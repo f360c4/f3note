@@ -9,6 +9,14 @@ license=('MIT')
 depends=('gtk4' 'gtksourceview5')
 makedepends=('cargo')
 
+# Arch turns LTO on for every package (OPTIONS=(... lto) in makepkg.conf), and
+# it breaks this one. zstd-sys compiles the bundled C zstd with the CFLAGS
+# makepkg exports, so -flto=auto makes those objects LTO bitcode; the Rust
+# link step is not using the LTO plugin, so every ZSTD_* symbol comes out
+# undefined and the build dies at the very end. Found by building the package
+# rather than by reading about it.
+options=(!lto)
+
 # The exact source revision this package builds. Named here rather than left
 # implicit in a tag, because a tag is a mutable pointer: whoever controls the
 # repository can move it, and a later makepkg would then compile something
